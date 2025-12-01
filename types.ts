@@ -1,7 +1,7 @@
 
 export interface Permissions {
     // General (عام)
-    can_view_agenda: boolean; // عرض المفكرة والصفحة الرئيسية
+    can_view_agenda: boolean;
 
     // Clients (الموكلين)
     can_view_clients: boolean;
@@ -20,8 +20,8 @@ export interface Permissions {
     can_add_session: boolean;
     can_edit_session: boolean;
     can_delete_session: boolean;
-    can_postpone_session: boolean; // ترحيل الجلسات
-    can_decide_session: boolean;   // حسم الجلسات/المراحل
+    can_postpone_session: boolean;
+    can_decide_session: boolean;
 
     // Documents (الوثائق)
     can_view_documents: boolean;
@@ -30,9 +30,9 @@ export interface Permissions {
 
     // Finance (المالية)
     can_view_finance: boolean;
-    can_add_financial_entry: boolean; // إضافة قيود
-    can_delete_financial_entry: boolean; // حذف قيود
-    can_manage_invoices: boolean; // إدارة الفواتير كاملة
+    can_add_financial_entry: boolean;
+    can_delete_financial_entry: boolean;
+    can_manage_invoices: boolean;
 
     // Admin Tasks (المهام الإدارية)
     can_view_admin_tasks: boolean;
@@ -45,40 +45,32 @@ export interface Permissions {
 }
 
 export const defaultPermissions: Permissions = {
-    // Default restricted permissions for a new assistant
     can_view_agenda: true,
-
     can_view_clients: true,
     can_add_client: false,
     can_edit_client: false,
     can_delete_client: false,
-
     can_view_cases: true,
     can_add_case: false,
     can_edit_case: false,
     can_delete_case: false,
-
     can_view_sessions: true,
     can_add_session: true,
     can_edit_session: false,
     can_delete_session: false,
     can_postpone_session: true,
     can_decide_session: false,
-
     can_view_documents: true,
     can_add_document: true,
-    can_delete_document: false,
-
+    can_delete_document: true, // Allow local deletion
     can_view_finance: false,
     can_add_financial_entry: false,
     can_delete_financial_entry: false,
     can_manage_invoices: false,
-
     can_view_admin_tasks: true,
     can_add_admin_task: true,
     can_edit_admin_task: true,
     can_delete_admin_task: false,
-
     can_view_reports: false,
 };
 
@@ -94,8 +86,8 @@ export interface Profile {
   subscription_start_date: string | null; // ISO string
   subscription_end_date: string | null; // ISO string
   role: 'user' | 'admin';
-  lawyer_id?: string | null; // ID of the lawyer this user assists
-  permissions?: Permissions; // Granular permissions
+  lawyer_id?: string | null;
+  permissions?: Permissions;
   created_at?: string; // ISO string
   updated_at?: Date;
 }
@@ -113,7 +105,6 @@ export interface Session {
   isPostponed: boolean;
   nextSessionDate?: Date;
   assignee?: string;
-  // For contextual rendering in flat lists
   stageId?: string;
   stageDecisionDate?: Date;
   updated_at?: Date;
@@ -200,7 +191,7 @@ export interface InvoiceItem {
 }
 
 export interface Invoice {
-  id: string; // e.g., INV-2024-001
+  id: string; 
   clientId: string;
   clientName: string;
   caseId?: string;
@@ -208,8 +199,8 @@ export interface Invoice {
   issueDate: Date;
   dueDate: Date;
   items: InvoiceItem[];
-  taxRate: number; // Percentage, e.g., 14 for 14%
-  discount: number; // Fixed amount
+  taxRate: number; 
+  discount: number; 
   status: 'draft' | 'sent' | 'paid' | 'overdue';
   notes?: string;
   updated_at?: Date;
@@ -236,7 +227,11 @@ export interface CaseDocument {
   type: string;
   size: number;
   addedAt: Date;
-  storagePath: string; // e.g., 'user-uuid/case-id/doc-id-filename.pdf'
+  storagePath: string; 
+  // pending_upload: Local file waiting to go to cloud
+  // synced: File matches cloud (or is downloaded locally)
+  // pending_download: Metadata exists, file missing locally
+  // downloading: Currently fetching
   localState: 'synced' | 'pending_upload' | 'pending_download' | 'error' | 'downloading';
   updated_at?: Date;
 }

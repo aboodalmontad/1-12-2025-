@@ -21,7 +21,7 @@ const CopyButton: React.FC<{ textToCopy: string }> = ({ textToCopy }) => {
 
 const unifiedScript = `
 -- =================================================================
--- السكربت الشامل لإصلاح وإعداد قاعدة البيانات مع نظام المساعدين وسجل المحذوفات
+-- السكربت الشامل لإصلاح وإعداد قاعدة البيانات
 -- =================================================================
 
 -- 1. تحديث جدول الملفات الشخصية (Profiles)
@@ -36,14 +36,13 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS otp_expires_at timestamptz;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_start_date date;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_end_date date;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role text DEFAULT 'user';
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS lawyer_id uuid REFERENCES auth.users(id) ON DELETE SET NULL; -- للمساعدين
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS permissions jsonb DEFAULT '{}'; -- صلاحيات المساعدين
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS lawyer_id uuid REFERENCES auth.users(id) ON DELETE SET NULL;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS permissions jsonb DEFAULT '{}';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 
 -- 2. الدوال والمشغلات (Functions & Triggers)
 
--- دالة مساعدة لتحديد "مالك البيانات"
 CREATE OR REPLACE FUNCTION public.get_data_owner_id()
 RETURNS uuid AS $$
 DECLARE
@@ -58,7 +57,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth;
 
--- دالة للتحقق مما إذا كان المستخدم مديراً للنظام (Admin)
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean AS $$
 DECLARE
@@ -69,7 +67,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth;
 
--- دالة لحذف حساب المستخدم
 CREATE OR REPLACE FUNCTION public.delete_user(user_id_to_delete uuid)
 RETURNS void AS $$
 BEGIN
@@ -81,7 +78,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth;
 GRANT EXECUTE ON FUNCTION public.delete_user(uuid) TO authenticated;
 
--- دالة التحقق من الجوال
 CREATE OR REPLACE FUNCTION public.check_if_mobile_exists(mobile_to_check text)
 RETURNS boolean AS $$
 DECLARE
@@ -93,7 +89,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 GRANT EXECUTE ON FUNCTION public.check_if_mobile_exists(text) TO anon, authenticated;
 
--- دالة توليد OTP
 CREATE OR REPLACE FUNCTION public.generate_mobile_otp(target_user_id uuid)
 RETURNS text AS $$
 DECLARE
@@ -106,7 +101,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 GRANT EXECUTE ON FUNCTION public.generate_mobile_otp(uuid) TO anon, authenticated;
 
--- دالة التحقق من OTP
 CREATE OR REPLACE FUNCTION public.verify_mobile_otp(target_mobile text, code_to_check text)
 RETURNS boolean AS $$
 DECLARE
@@ -124,7 +118,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 GRANT EXECUTE ON FUNCTION public.verify_mobile_otp(text, text) TO anon, authenticated;
 
--- دالة التعامل مع المستخدم الجديد
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 DECLARE
@@ -209,8 +202,8 @@ END$$;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Profiles Visibility" ON public.profiles FOR SELECT USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
 CREATE POLICY "Profiles Update" ON public.profiles FOR UPDATE USING (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
+CREATE POLICY "Profiles Insert" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id OR lawyer_id = auth.uid() OR public.is_admin());
 
--- تحديث السياسات للسماح للمدير برؤية جميع البيانات
 CREATE POLICY "Access Own Data" ON public.assistants FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
 CREATE POLICY "Access Own Data" ON public.clients FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
 CREATE POLICY "Access Own Data" ON public.cases FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
@@ -223,7 +216,6 @@ CREATE POLICY "Access Own Data" ON public.invoices FOR ALL USING (user_id = publ
 CREATE POLICY "Access Own Data" ON public.invoice_items FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
 CREATE POLICY "Access Own Data" ON public.case_documents FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
 
--- سياسة سجل المحذوفات
 ALTER TABLE public.sync_deletions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Access Own Deletions" ON public.sync_deletions FOR ALL USING (user_id = public.get_data_owner_id() OR public.is_admin());
 
@@ -238,7 +230,6 @@ ALTER TABLE public.accounting_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invoice_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.case_documents ENABLE ROW LEVEL SECURITY;
-
 ALTER TABLE public.site_finances ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Admins manage finances" ON public.site_finances FOR ALL USING (public.is_admin());
 
@@ -259,12 +250,40 @@ BEGIN
     END LOOP;
 END $$;
 
--- 6. Storage Bucket
+-- 6. Storage Bucket & Policies
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES ('documents', 'documents', false, 10485760, ARRAY['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET 
+    public = EXCLUDED.public,
+    file_size_limit = EXCLUDED.file_size_limit,
+    allowed_mime_types = EXCLUDED.allowed_mime_types;
 
--- 7. Backfill
+-- Create permissive policies for authenticated users on the 'documents' bucket
+-- Using DO blocks to safely drop and create policies without errors and avoiding ownership checks on system tables
+DO $$
+BEGIN
+    BEGIN
+        DROP POLICY IF EXISTS "Authenticated users can upload documents" ON storage.objects;
+        CREATE POLICY "Authenticated users can upload documents" ON storage.objects FOR INSERT TO authenticated WITH CHECK ( bucket_id = 'documents' );
+    EXCEPTION WHEN OTHERS THEN NULL; END;
+
+    BEGIN
+        DROP POLICY IF EXISTS "Authenticated users can view documents" ON storage.objects;
+        CREATE POLICY "Authenticated users can view documents" ON storage.objects FOR SELECT TO authenticated USING ( bucket_id = 'documents' );
+    EXCEPTION WHEN OTHERS THEN NULL; END;
+
+    BEGIN
+        DROP POLICY IF EXISTS "Authenticated users can update documents" ON storage.objects;
+        CREATE POLICY "Authenticated users can update documents" ON storage.objects FOR UPDATE TO authenticated USING ( bucket_id = 'documents' );
+    EXCEPTION WHEN OTHERS THEN NULL; END;
+
+    BEGIN
+        DROP POLICY IF EXISTS "Authenticated users can delete documents" ON storage.objects;
+        CREATE POLICY "Authenticated users can delete documents" ON storage.objects FOR DELETE TO authenticated USING ( bucket_id = 'documents' );
+    EXCEPTION WHEN OTHERS THEN NULL; END;
+END $$;
+
+-- 7. Backfill Admin
 INSERT INTO public.profiles (id, full_name, mobile_number, role, is_approved, is_active, mobile_verified)
 SELECT 
     au.id,
@@ -296,7 +315,7 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
                             </div>
                             <div className="ms-3">
                                 <p className="text-sm text-blue-700">
-                                    هذا التحديث ضروري لإصلاح مشكلة عرض إحصائيات المستخدمين للمدير وعودة البيانات المحذوفة. يرجى نسخ الكود الجديد وتشغيله في Supabase.
+                                    هذا التحديث ضروري لإصلاح مشكلة رفع وتنزيل الوثائق (Download error 42501). يرجى نسخ الكود الجديد وتشغيله في Supabase.
                                 </p>
                             </div>
                         </div>
