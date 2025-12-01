@@ -1,7 +1,8 @@
+
 import * as React from 'react';
 import { useData } from '../context/DataContext';
 import { CaseDocument } from '../types';
-import { DocumentArrowUpIcon, TrashIcon, EyeIcon, DocumentTextIcon, PhotoIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon } from './icons';
+import { DocumentArrowUpIcon, TrashIcon, EyeIcon, DocumentTextIcon, PhotoIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, PlusIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowPathRoundedSquareIcon } from './icons';
 import { renderAsync } from 'docx-preview';
 
 interface CaseDocumentsProps {
@@ -186,6 +187,150 @@ const DocxPreview: React.FC<{ file: File; name: string; onClose: () => void; onD
     );
 };
 
+// --- Professional Image Viewer Component ---
+const ImageViewer: React.FC<{ src: string; alt: string; onClose: () => void }> = ({ src, alt, onClose }) => {
+    const [scale, setScale] = React.useState(1);
+    const [position, setPosition] = React.useState({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = React.useState(false);
+    const imgRef = React.useRef<HTMLImageElement>(null);
+    const lastPos = React.useRef<{ x: number, y: number } | null>(null);
+    const lastDist = React.useRef<number | null>(null); // For pinch zoom
+
+    // Reset zoom when image changes
+    React.useEffect(() => {
+        setScale(1);
+        setPosition({ x: 0, y: 0 });
+    }, [src]);
+
+    const handleWheel = (e: React.WheelEvent) => {
+        e.stopPropagation();
+        const delta = e.deltaY * -0.002;
+        const newScale = Math.min(Math.max(1, scale + delta), 5);
+        setScale(newScale);
+        if (newScale === 1) setPosition({ x: 0, y: 0 }); // Reset position if zoomed out
+    };
+
+    const handlePointerDown = (e: React.PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        imgRef.current?.setPointerCapture(e.pointerId);
+        setIsDragging(true);
+        lastPos.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handlePointerMove = (e: React.PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isDragging || !lastPos.current) return;
+
+        // Pan logic
+        const deltaX = e.clientX - lastPos.current.x;
+        const deltaY = e.clientY - lastPos.current.y;
+
+        if (scale > 1) {
+            setPosition(prev => ({ x: prev.x + deltaX, y: prev.y + deltaY }));
+        }
+        
+        lastPos.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handlePointerUp = (e: React.PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        lastPos.current = null;
+        lastDist.current = null;
+        imgRef.current?.releasePointerCapture(e.pointerId);
+    };
+
+    // Touch Pinch-to-Zoom handling (simplified)
+    const handleTouchMove = (e: React.TouchEvent) => {
+        if (e.touches.length === 2) {
+            const touch1 = e.touches[0];
+            const touch2 = e.touches[1];
+            const dist = Math.hypot(touch1.clientX - touch2.clientX, touch1.clientY - touch2.clientY);
+
+            if (lastDist.current) {
+                const delta = dist - lastDist.current;
+                const zoomFactor = delta * 0.01;
+                setScale(prev => Math.min(Math.max(1, prev + zoomFactor), 5));
+            }
+            lastDist.current = dist;
+        }
+    };
+
+    const handleTouchEnd = () => {
+        lastDist.current = null;
+    };
+
+    const resetZoom = () => {
+        setScale(1);
+        setPosition({ x: 0, y: 0 });
+    };
+
+    const zoomIn = () => setScale(s => Math.min(s + 0.5, 5));
+    const zoomOut = () => {
+        const newScale = Math.max(1, scale - 0.5);
+        setScale(newScale);
+        if (newScale === 1) setPosition({ x: 0, y: 0 });
+    };
+
+    return (
+        <div 
+            className="fixed inset-0 z-[100] bg-black/95 flex flex-col justify-center items-center overflow-hidden touch-none"
+            onWheel={handleWheel}
+        >
+            {/* Top Toolbar */}
+            <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-50 bg-gradient-to-b from-black/60 to-transparent">
+                <span className="text-white font-medium truncate max-w-[70%]">{alt}</span>
+                <button onClick={onClose} className="p-2 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors backdrop-blur-md">
+                    <XMarkIcon className="w-6 h-6" />
+                </button>
+            </div>
+
+            {/* Image Container */}
+            <div 
+                className="w-full h-full flex items-center justify-center overflow-hidden cursor-grab active:cursor-grabbing"
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerLeave={handlePointerUp}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+            >
+                <img 
+                    ref={imgRef}
+                    src={src} 
+                    alt={alt} 
+                    className="max-w-none max-h-none transition-transform duration-75 ease-linear select-none touch-none"
+                    style={{ 
+                        transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        objectFit: 'contain'
+                    }}
+                    draggable={false}
+                />
+            </div>
+
+            {/* Bottom Controls */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 px-6 py-3 bg-white/10 backdrop-blur-md rounded-full border border-white/20 shadow-2xl z-50">
+                <button onClick={zoomOut} className="text-white hover:text-blue-300 disabled:opacity-50" disabled={scale <= 1}>
+                    <div className="p-1"><MagnifyingGlassMinusIcon className="w-6 h-6" /></div>
+                </button>
+                <span className="text-white font-mono text-sm min-w-[3rem] text-center">{Math.round(scale * 100)}%</span>
+                <button onClick={zoomIn} className="text-white hover:text-blue-300 disabled:opacity-50" disabled={scale >= 5}>
+                    <div className="p-1"><MagnifyingGlassPlusIcon className="w-6 h-6" /></div>
+                </button>
+                <div className="w-px h-6 bg-white/20 mx-1"></div>
+                <button onClick={resetZoom} className="text-white hover:text-blue-300" title="إعادة الضبط">
+                    <div className="p-1"><ArrowPathRoundedSquareIcon className="w-5 h-5" /></div>
+                </button>
+            </div>
+        </div>
+    );
+};
+
 const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ doc, onClose }) => {
     const { getDocumentFile, documents } = useData();
     const [file, setFile] = React.useState<File | null>(null);
@@ -258,7 +403,11 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
             );
         }
 
-        if (file.type.startsWith('image/')) return <img src={objectUrl} alt={doc.name} className="max-h-full max-w-full object-contain mx-auto" />;
+        // Use the new ImageViewer for images
+        if (file.type.startsWith('image/')) {
+            return <ImageViewer src={objectUrl} alt={doc.name} onClose={onClose} />;
+        }
+
         if (file.type.startsWith('text/')) return <TextPreview file={file} name={doc.name} />;
         if (doc.name.toLowerCase().endsWith('.docx') || doc.name.toLowerCase().endsWith('.doc')) {
              return <DocxPreview file={file} name={doc.name} onClose={onClose} onDownload={handleDownload} />;
@@ -276,6 +425,11 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
         );
     };
 
+    // If it's an image, render directly without the modal wrapper to allow full screen
+    if (file && file.type.startsWith('image/')) {
+        return renderPreview();
+    }
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" onClick={onClose}>
             <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -289,6 +443,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
 
 
 const DocumentScannerModal: React.FC<{ onClose: () => void; onCapture: (file: File) => void }> = ({ onClose, onCapture }) => {
+    // ... (rest of DocumentScannerModal remains unchanged)
     const videoRef = React.useRef<HTMLVideoElement>(null);
     const canvasRef = React.useRef<HTMLCanvasElement>(null);
     const streamRef = React.useRef<MediaStream | null>(null);
@@ -421,6 +576,7 @@ const DocumentScannerModal: React.FC<{ onClose: () => void; onCapture: (file: Fi
 
 
 const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
+    // ... (rest of CaseDocuments remains unchanged)
     const { documents, addDocuments, deleteDocument, getDocumentFile } = useData();
     const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
     const [docToDelete, setDocToDelete] = React.useState<CaseDocument | null>(null);

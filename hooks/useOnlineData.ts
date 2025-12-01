@@ -259,13 +259,6 @@ export const restoreRawData = async (data: any) => {
                 const batch = records.slice(i, i + batchSize);
                 
                 // For restoration, we use upsert to overwrite existing or create new.
-                // We use default resolution (ignore duplicates if not updating, but here we likely want to update)
-                // However, simple upsert works best.
-                let options = {};
-                // assistants table composite key handling if needed, though 'id' is PK now in schema script, 
-                // but schema script says: assistants (id ... PRIMARY KEY). 
-                // If restore data has 'id', upsert works on PK.
-                
                 const { error } = await supabase.from(table).upsert(batch).select();
                 
                 if (error) {
