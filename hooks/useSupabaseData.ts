@@ -1,6 +1,6 @@
 
 import * as React from 'react';
-import { Client, AdminTask, Appointment, AccountingEntry, Invoice, InvoiceItem, CaseDocument, Profile, SiteFinancialEntry, SyncDeletion, AppData, DeletedIds, getInitialDeletedIds, Session, Permissions, defaultPermissions } from '../types';
+import { Client, Session, AdminTask, Appointment, AccountingEntry, Case, Stage, Invoice, InvoiceItem, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, Profile, SiteFinancialEntry, Permissions, defaultPermissions } from '../types';
 import { useOnlineStatus } from './useOnlineStatus';
 // Fix: Use `import type` for User and RealtimeChannel as they are used as types, not a value.
 import type { User, RealtimeChannel } from '@supabase/supabase-js';
@@ -467,11 +467,9 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
             const finalDocs = safeArray(validatedMergedData.documents, (doc: any) => {
                 if (!doc || typeof doc !== 'object' || !doc.id) return undefined;
                 const localMeta = (localDocsMetadata as any[]).find((meta: any) => meta.id === doc.id);
-                // IF new document from server, default to pending_download.
-                // IF existing local doc, keep state.
                 const mergedDoc = {
                     ...doc,
-                    localState: localMeta?.localState || 'pending_download'
+                    localState: localMeta?.localState || doc.localState || 'pending_download'
                 };
                 return validateDocuments(mergedDoc, userRef.current?.id || '');
             });
@@ -513,12 +511,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         onDataSynced: handleDataSynced,
         onDeletionsSynced: handleDeletionsSynced,
         onSyncStatusChange: handleSyncStatusChange,
-        isOnline, isAuthLoading, syncStatus,
-        getDocumentFile: async (docId: string) => {
-             // Access `getDocumentFile` from closure or pass it differently if needed for sync
-             // For now, sync downloads happen inside useSync logic calling public getDocumentFile or logic
-             return null; 
-        }
+        isOnline, isAuthLoading, syncStatus
     });
 
     // Auto Sync
@@ -604,52 +597,6 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         });
     }, [isOnline, fetchAndRefresh]);
 
-    const getDocumentFile = React.useCallback(async (docId: string): Promise<File | null> => {
-        const db = await getDb();
-        const supabase = getSupabaseClient();
-        const doc = data.documents.find(d => d.id === docId);
-        if (!doc) return null;
-        
-        const localFile = await db.get(DOCS_FILES_STORE_NAME, docId);
-        if (localFile) return localFile;
-        
-        if (doc.localState === 'pending_download' && isOnline && supabase) {
-            try {
-                updateData(p => ({...p, documents: p.documents.map(d => d.id === docId ? {...d, localState: 'downloading' } : d)}));
-                const { data: blob, error } = await supabase.storage.from('documents').download(doc.storagePath);
-                if (error || !blob) throw error || new Error("Empty blob");
-                
-                const downloadedFile = new File([blob], doc.name, { type: doc.type });
-                
-                await db.put(DOCS_FILES_STORE_NAME, downloadedFile, doc.id);
-                // Update Metadata to Synced locally
-                await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'synced' }, doc.id);
-                
-                updateData(p => ({...p, documents: p.documents.map(d => d.id === docId ? {...d, localState: 'synced'} : d)}));
-                
-                return downloadedFile;
-            } catch (e) {
-                console.error("Download error:", e);
-                await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'error' }, doc.id);
-                updateData(p => ({...p, documents: p.documents.map(d => d.id === docId ? {...d, localState: 'error'} : d)}));
-            }
-        }
-        return null;
-    }, [data.documents, isOnline, updateData]);
-
-    // Use effect to automatically trigger download for pending documents
-    React.useEffect(() => {
-        const pendingDocs = data.documents.filter(d => d.localState === 'pending_download');
-        if (pendingDocs.length > 0 && isOnline) {
-            const downloadNext = async () => {
-                const doc = pendingDocs[0];
-                await getDocumentFile(doc.id);
-                // The state update in getDocumentFile will trigger this effect again for the next doc
-            };
-            downloadNext();
-        }
-    }, [data.documents, isOnline, getDocumentFile]);
-
 
     // ... Return all the same properties + permissions
     return {
@@ -723,20 +670,18 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         deleteInvoice: (id: string) => { updateData(p => ({...p, invoices: p.invoices.filter(i => i.id !== id)})); createDeleteFunction('invoices')(id); },
         deleteAssistant: (name: string) => { updateData(p => ({...p, assistants: p.assistants.filter(a => a !== name)})); createDeleteFunction('assistants')(name); },
         deleteDocument: async (doc: CaseDocument) => {
-            // === LOCAL DELETE ONLY ===
-            // This ensures each user manages their own downloaded files independently.
+            // ...
             const db = await getDb();
-            // 1. Remove file from IndexedDB
             await db.delete(DOCS_FILES_STORE_NAME, doc.id);
-            // 2. Remove metadata from IndexedDB
             await db.delete(DOCS_METADATA_STORE_NAME, doc.id);
-            
-            // 3. Update App State
             updateData(p => ({ ...p, documents: p.documents.filter(d => d.id !== doc.id) }));
-            
-            // CRITICAL: We DO NOT add this to 'deletedIds' or send a delete request to Supabase.
-            // This prevents deleting the file for other users.
+            if(effectiveUserId) {
+                const newDeletedIds = { ...deletedIds, documents: [...deletedIds.documents, doc.id], documentPaths: [...deletedIds.documentPaths, doc.storagePath] };
+                setDeletedIds(newDeletedIds);
+                await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`);
+            }
         },
+        // ... (addDocuments, getDocumentFile, postponeSession - ensure they call updateData which handles IDB key)
         addDocuments: async (caseId: string, files: FileList) => {
              const db = await getDb();
              const newDocs: CaseDocument[] = [];
@@ -747,25 +692,38 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                  const extension = lastDot !== -1 ? file.name.substring(lastDot) : '';
                  const safeStoragePath = `${effectiveUserId || user!.id}/${caseId}/${docId}${extension}`;
                  const doc: CaseDocument = {
-                     id: docId, 
-                     caseId, 
-                     userId: effectiveUserId || user!.id, 
-                     name: file.name, 
-                     type: file.type || 'application/octet-stream', 
-                     size: file.size, 
-                     addedAt: new Date(), 
-                     storagePath: safeStoragePath, 
-                     localState: 'pending_upload', // Mark for upload
-                     updated_at: new Date(),
+                     id: docId, caseId, userId: effectiveUserId || user!.id, name: file.name, type: file.type || 'application/octet-stream', size: file.size, addedAt: new Date(), storagePath: safeStoragePath, localState: 'pending_upload', updated_at: new Date(),
                  };
                  await db.put(DOCS_FILES_STORE_NAME, file, doc.id);
                  await db.put(DOCS_METADATA_STORE_NAME, doc, doc.id);
                  newDocs.push(doc);
              }
              updateData(p => ({...p, documents: [...p.documents, ...newDocs]}));
-             setDirty(true); // Trigger sync
         },
-        getDocumentFile,
+        getDocumentFile: async (docId: string): Promise<File | null> => {
+            const db = await getDb();
+            const supabase = getSupabaseClient();
+            const doc = data.documents.find(d => d.id === docId);
+            if (!doc) return null;
+            const localFile = await db.get(DOCS_FILES_STORE_NAME, docId);
+            if (localFile) return localFile;
+            if (doc.localState === 'pending_download' && isOnline && supabase) {
+                try {
+                    updateData(p => ({...p, documents: p.documents.map(d => d.id === docId ? {...d, localState: 'downloading' } : d)}));
+                    const { data: blob, error } = await supabase.storage.from('documents').download(doc.storagePath);
+                    if (error || !blob) throw error || new Error("Empty blob");
+                    const downloadedFile = new File([blob], doc.name, { type: doc.type });
+                    await db.put(DOCS_FILES_STORE_NAME, downloadedFile, doc.id);
+                    await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'synced' }, doc.id);
+                    updateData(p => ({...p, documents: p.documents.map(d => d.id === docId ? {...d, localState: 'synced'} : d)}));
+                    return downloadedFile;
+                } catch (e) {
+                    await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'error' }, doc.id);
+                    updateData(p => ({...p, documents: p.documents.map(d => d.id === docId ? {...d, localState: 'error'} : d)}));
+                }
+            }
+            return null;
+        },
         postponeSession: (sessionId: string, newDate: Date, newReason: string) => {
              updateData(prev => {
                  // ... (postpone logic from previous version, unchanged)

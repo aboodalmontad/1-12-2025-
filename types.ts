@@ -67,7 +67,7 @@ export const defaultPermissions: Permissions = {
 
     can_view_documents: true,
     can_add_document: true,
-    can_delete_document: true, // Allow local deletion by default
+    can_delete_document: false,
 
     can_view_finance: false,
     can_add_financial_entry: false,
@@ -264,8 +264,8 @@ export interface DeletedIds {
     invoices: string[];
     invoiceItems: string[];
     assistants: string[];
-    documents: string[]; // Note: Only used for FULL deletions if needed, mostly documents are local-delete only now
-    documentPaths: string[]; // Same
+    documents: string[];
+    documentPaths: string[];
     profiles: string[];
     siteFinances: string[];
 }

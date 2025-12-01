@@ -1,4 +1,3 @@
-
 import * as React from 'react';
 import { Session } from '../types';
 import { formatDate, toInputDateString } from '../utils/dateUtils';
@@ -53,7 +52,6 @@ const SessionPostponeItem: React.FC<{
                         onChange={(e) => setNextDate(e.target.value)}
                         className="mt-1 w-full p-2 border rounded-md text-sm"
                         aria-label="تاريخ الجلسة القادمة"
-                        style={{ direction: 'ltr' }}
                     />
                 </div>
                 <div>

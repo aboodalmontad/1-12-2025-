@@ -1,4 +1,3 @@
-
 import * as React from 'react';
 import { AdminTask } from '../types';
 import { toInputDateString } from '../utils/dateUtils';
@@ -89,7 +88,7 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700">تاريخ الاستحقاق</label>
-                            <input type="date" name="dueDate" value={taskFormData.dueDate} onChange={handleTaskFormChange} className="w-full p-2 border rounded" placeholder="DD/MM/YYYY" required style={{ direction: 'ltr' }} />
+                            <input type="date" name="dueDate" value={taskFormData.dueDate} onChange={handleTaskFormChange} className="w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700">الأهمية</label>

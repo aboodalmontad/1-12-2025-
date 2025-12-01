@@ -785,7 +785,7 @@ const HomePage: React.FC<HomePageProps> = ({
                                 </div>
                                 <div>
                                     <label htmlFor="date" className="block text-sm font-medium text-gray-700">التاريخ</label>
-                                    <input type="date" id="date" name="date" value={newAppointment.date} onChange={handleAppointmentFormChange} className="mt-1 w-full p-2 border rounded" placeholder="DD/MM/YYYY" required style={{ direction: 'ltr' }} />
+                                    <input type="date" id="date" name="date" value={newAppointment.date} onChange={handleAppointmentFormChange} className="mt-1 w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
                                     {dateWarning && (
                                         <p className="mt-1 text-xs text-yellow-600 flex items-center gap-1">
                                             <ExclamationTriangleIcon className="w-4 h-4" />
@@ -795,7 +795,7 @@ const HomePage: React.FC<HomePageProps> = ({
                                 </div>
                                 <div>
                                     <label htmlFor="time" className="block text-sm font-medium text-gray-700">الوقت</label>
-                                    <input type="time" id="time" name="time" value={newAppointment.time} onChange={handleAppointmentFormChange} className="mt-1 w-full p-2 border rounded" required style={{ direction: 'ltr' }} />
+                                    <input type="time" id="time" name="time" value={newAppointment.time} onChange={handleAppointmentFormChange} className="mt-1 w-full p-2 border rounded" required />
                                 </div>
                                 <div>
                                     <label htmlFor="assignee" className="block text-sm font-medium text-gray-700">الشخص المسؤول</label>
