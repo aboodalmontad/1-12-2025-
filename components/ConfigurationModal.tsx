@@ -315,7 +315,7 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
                             </div>
                             <div className="ms-3">
                                 <p className="text-sm text-blue-700">
-                                    هذا التحديث ضروري لإصلاح مشكلة رفع وتنزيل الوثائق (Download error 42501). يرجى نسخ الكود الجديد وتشغيله في Supabase.
+                                    هذا التحديث ضروري لإصلاح مشكلة رفع وتنزيل الوثائق (Download error). يرجى نسخ الكود الجديد وتشغيله في Supabase.
                                 </p>
                             </div>
                         </div>

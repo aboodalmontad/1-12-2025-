@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { useData } from '../context/DataContext';
 import { CaseDocument } from '../types';
-import { DocumentArrowUpIcon, TrashIcon, EyeIcon, DocumentTextIcon, PhotoIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, PlusIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowPathRoundedSquareIcon } from './icons';
+import { DocumentArrowUpIcon, TrashIcon, EyeIcon, DocumentTextIcon, PhotoIcon, XMarkIcon, ExclamationTriangleIcon, ArrowPathIcon, CameraIcon, CloudArrowUpIcon, CloudArrowDownIcon, CheckCircleIcon, ExclamationCircleIcon, ArrowDownTrayIcon, PlusIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowPathRoundedSquareIcon, CloudIcon } from './icons';
 import { renderAsync } from 'docx-preview';
 
 interface CaseDocumentsProps {
@@ -17,6 +17,8 @@ const SyncStatusIcon: React.FC<{ state: CaseDocument['localState'] }> = ({ state
             return <CloudArrowUpIcon className="w-5 h-5 text-blue-500 animate-pulse" title="بانتظار الرفع والمزامنة" />;
         case 'pending_download':
             return <CloudArrowDownIcon className="w-5 h-5 text-gray-400" title="جاهز للتنزيل" />;
+        case 'cloud_only':
+            return <CloudIcon className="w-5 h-5 text-gray-400" title="متوفر في السحابة (انقر للتنزيل)" />;
         case 'downloading':
             return <CloudArrowDownIcon className="w-5 h-5 text-blue-500 animate-spin" title="جاري التنزيل..." />;
         case 'error':
@@ -35,7 +37,8 @@ const FilePreview: React.FC<{ doc: CaseDocument, onPreview: (doc: CaseDocument) 
         let objectUrl: string | null = null;
         let isMounted = true;
         const generateThumbnail = async () => {
-            if (doc.localState === 'pending_download' || !doc.type.startsWith('image/')) {
+            // Don't generate thumbnails for non-images or files not yet downloaded
+            if (doc.localState === 'pending_download' || doc.localState === 'cloud_only' || !doc.type.startsWith('image/')) {
                  setIsLoadingThumbnail(false);
                  return;
             }
@@ -86,7 +89,7 @@ const FilePreview: React.FC<{ doc: CaseDocument, onPreview: (doc: CaseDocument) 
                     <img src={thumbnailUrl} alt={doc.name} className="object-cover w-full h-full" />
                 ) : (
                     <div className="flex-grow flex items-center justify-center bg-gray-200 w-full h-full">
-                        <DocumentTextIcon className="w-12 h-12 text-gray-400" />
+                        {doc.localState === 'cloud_only' ? <CloudIcon className="w-12 h-12 text-gray-400" /> : <DocumentTextIcon className="w-12 h-12 text-gray-400" />}
                     </div>
                 )}
             </div>
@@ -302,6 +305,10 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
                     const latestDocState = documents.find(d => d.id === doc.id)?.localState;
                     if (latestDocState === 'error') {
                         setError('فشل تنزيل الملف. يرجى التحقق من اتصالك بالإنترنت.');
+                    } else if (latestDocState === 'cloud_only') {
+                        // This case should be handled by auto-triggering download in useSupabaseData/useEffect,
+                        // but if we are here, it means we are waiting.
+                        // We rely on getDocumentFile to trigger the download state change.
                     } else {
                         setError('الملف غير متوفر محلياً بعد.');
                     }
@@ -310,7 +317,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
         };
         loadFile();
         return () => { if (url) URL.revokeObjectURL(url); };
-    }, [doc.id, getDocumentFile]);
+    }, [doc.id, getDocumentFile, documents]);
 
     const handleDownload = () => {
         if (objectUrl) {
@@ -523,7 +530,7 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
                             <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-4"><ExclamationTriangleIcon className="h-8 w-8 text-red-600" /></div>
                             <h3 className="text-2xl font-bold">تأكيد حذف الوثيقة</h3>
                             <p className="my-4">هل أنت متأكد من حذف وثيقة "{docToDelete.name}"؟</p>
-                            <p className="text-sm text-gray-500 bg-gray-100 p-2 rounded">ملاحظة: سيتم حذف الملف من جهازك الحالي فقط. لن يتأثر المستخدمون الآخرون.</p>
+                            <p className="text-sm text-gray-500 bg-gray-100 p-2 rounded">ملاحظة: سيتم حذف الملف من جهازك الحالي فقط (لتحرير المساحة) ويبقى محفوظاً في السحابة (cloud_only). يمكنك إعادة تنزيله في أي وقت.</p>
                         </div>
                         <div className="mt-6 flex justify-center gap-4">
                             <button className="px-6 py-2 bg-gray-200 rounded-lg" onClick={() => setIsDeleteModalOpen(false)}>إلغاء</button>

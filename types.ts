@@ -232,7 +232,8 @@ export interface CaseDocument {
   // synced: File matches cloud (or is downloaded locally)
   // pending_download: Metadata exists, file missing locally
   // downloading: Currently fetching
-  localState: 'synced' | 'pending_upload' | 'pending_download' | 'error' | 'downloading';
+  // cloud_only: User manually deleted local copy, do not auto-download
+  localState: 'synced' | 'pending_upload' | 'pending_download' | 'error' | 'downloading' | 'cloud_only';
   updated_at?: Date;
 }
 

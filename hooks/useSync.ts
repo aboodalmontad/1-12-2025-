@@ -13,8 +13,8 @@ interface UseSyncProps {
     user: User | null;
     localData: AppData;
     deletedIds: DeletedIds;
-    onDataSynced: (mergedData: AppData) => void;
-    onDeletionsSynced: (syncedDeletions: Partial<DeletedIds>) => void;
+    onDataSynced: (mergedData: AppData) => Promise<void> | void;
+    onDeletionsSynced: (syncedDeletions: Partial<DeletedIds>) => Promise<void> | void;
     onSyncStatusChange: (status: SyncStatus, error: string | null) => void;
     isOnline: boolean;
     isAuthLoading: boolean;
@@ -114,6 +114,13 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
     });
 
     const filterItems = (items: any[], tableName: string) => {
+        // CRITICAL CHANGE: Do NOT filter case_documents based on remote deletions.
+        // This supports the feature where documents are deleted from the cloud (to save space)
+        // but kept locally on user devices (orphaned files).
+        if (tableName === 'case_documents') {
+            return items;
+        }
+
         return items.filter(item => {
             const id = item.id ?? item.name;
             const key = `${tableName}:${id}`;
@@ -149,8 +156,12 @@ const applyDeletionsToLocal = (localFlatData: FlatData, deletions: SyncDeletion[
     const invoiceIds = new Set(filteredInvoices.map(i => i.id));
     let filteredInvoiceItems = filterItems(localFlatData.invoice_items, 'invoice_items');
     filteredInvoiceItems = filteredInvoiceItems.filter(i => invoiceIds.has(i.invoice_id));
+    
+    // IMPORTANT: We still filter docs by CASE existence, but not by DOC deletion table
+    // This allows cascade delete if a Case is deleted, but ignores direct Doc deletions from server cleanup.
     let filteredDocs = filterItems(localFlatData.case_documents, 'case_documents');
     filteredDocs = filteredDocs.filter(d => caseIds.has(d.caseId)); 
+    
     let filteredEntries = filterItems(localFlatData.accounting_entries, 'accounting_entries');
     filteredEntries = filteredEntries.filter(e => !e.clientId || clientIds.has(e.clientId));
 
@@ -206,10 +217,10 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
                     await supabase.storage.from('documents').remove(pathsToRemove);
                 }
 
-                // 2. Delete from DB Table (Hard delete, bypassing sync_deletions trigger if any, or just not adding to client sync log)
-                // Note: Clients rely on 'sync_deletions' table or 'deletedIds' to know what to remove locally.
-                // Since we are NOT adding these to 'sync_deletions', clients will treat them as "Orphaned" local records and keep them.
+                // 2. Delete from DB Table (Hard delete)
                 const idsToRemove = oldDocs.map(d => d.id);
+                // Note: This deletion WILL be logged to sync_deletions by DB triggers (if configured).
+                // However, `applyDeletionsToLocal` is modified to IGNORE doc deletions.
                 await supabase.from('case_documents').delete().in('id', idsToRemove);
                 
                 console.log("Cleanup complete. Local copies remain intact.");
@@ -427,8 +438,12 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             }
 
             const finalMergedData = constructData(mergedFlatData as FlatData);
-            onDataSynced(finalMergedData);
-            onDeletionsSynced(successfulDeletions);
+            
+            // Wait for local processing to complete before marking as synced.
+            // This ensures `isDirty` is cleared by `onDataSynced` before we set status to 'synced'.
+            await onDataSynced(finalMergedData);
+            await onDeletionsSynced(successfulDeletions);
+            
             setStatus('synced');
         } catch (err: any) {
             // ... (Error handling same as before)
@@ -498,7 +513,10 @@ export const useSync = ({ user, localData, deletedIds, onDataSynced, onDeletions
             };
     
             const mergedData = constructData(mergedFlatData);
-            onDataSynced(mergedData);
+            
+            // Wait for local processing to complete
+            await onDataSynced(mergedData);
+            
             setStatus('synced');
         } catch (err: any) {
             let errorMessage = err.message || 'حدث خطأ غير متوقع.';

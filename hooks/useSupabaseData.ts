@@ -395,14 +395,15 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         const localFile = await db.get(DOCS_FILES_STORE_NAME, docId);
         if (localFile) {
             // Ensure local state is synced if we have the file
-            if (doc.localState === 'pending_download') {
+            if (doc.localState === 'pending_download' || doc.localState === 'cloud_only') {
                  updateData(p => ({...p, documents: p.documents.map(d => d.id === docId ? {...d, localState: 'synced' } : d)}));
             }
             return localFile;
         }
         
         // Priority 2: Download from Cloud if not pending upload
-        if (doc.localState === 'pending_download' && isOnline && supabase) {
+        // Support manual download for 'cloud_only' files
+        if ((doc.localState === 'pending_download' || doc.localState === 'cloud_only') && isOnline && supabase) {
             try {
                 updateData(p => ({...p, documents: p.documents.map(d => d.id === docId ? {...d, localState: 'downloading' } : d)}));
                 const { data: blob, error } = await supabase.storage.from('documents').download(doc.storagePath);
@@ -420,20 +421,25 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 return downloadedFile;
             } catch (e: any) {
                 let errorMsg = "Download failed";
+                
+                // ROBUST ERROR PARSING to avoid {}
                 if (e instanceof Error) {
                     errorMsg = e.message;
                 } else if (typeof e === 'object' && e !== null) {
                      // Supabase errors often look like { message: '...', error: ..., statusCode: ... }
-                     errorMsg = e.message || e.error_description || JSON.stringify(e);
-                     if (errorMsg === '{}') errorMsg = "Unknown Error (Empty Object) - Likely Permission Issue";
+                     // Try various known properties or fallback to stringifying
+                     errorMsg = e.message || e.error_description || (e.error ? JSON.stringify(e.error) : JSON.stringify(e));
                 } else {
                     errorMsg = String(e);
                 }
 
-                console.error("Download error:", errorMsg, e);
+                console.error("Download error:", errorMsg);
                 
-                await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: 'error' }, doc.id);
-                updateData(p => ({...p, documents: p.documents.map(d => d.id === docId ? {...d, localState: 'error'} : d)}));
+                // Revert to original state (either pending_download or cloud_only) or error
+                const revertState = doc.localState === 'cloud_only' ? 'cloud_only' : 'error';
+                
+                await db.put(DOCS_METADATA_STORE_NAME, { ...doc, localState: revertState }, doc.id);
+                updateData(p => ({...p, documents: p.documents.map(d => d.id === docId ? {...d, localState: revertState} : d)}));
             }
         }
         return null;
@@ -509,7 +515,10 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     }, []);
 
     const handleDataSynced = React.useCallback(async (mergedData: AppData) => {
-        if (!effectiveUserId) return;
+        // Use local ref or passed user to ensure we can at least clear dirty state
+        if (!userRef.current) return; 
+        const targetUserId = effectiveUserId || userRef.current.id;
+
         try {
             const validatedMergedData = validateAndFixData(mergedData, userRef.current);
             const db = await getDb();
@@ -535,7 +544,14 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 } 
                 // 2. If we don't have the file
                 else {
-                    newState = 'pending_download';
+                    // Preserve specific states if file is missing locally
+                    if (localMeta?.localState === 'error') {
+                        newState = 'error';
+                    } else if (localMeta?.localState === 'cloud_only') {
+                        newState = 'cloud_only'; // Respect explicit deletion
+                    } else {
+                        newState = 'pending_download'; // New file -> Auto download
+                    }
                 }
 
                 const mergedDoc = {
@@ -547,7 +563,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
             const finalData = { ...validatedMergedData, documents: finalDocs.filter(d => d !== undefined) as CaseDocument[] };
 
-            await db.put(DATA_STORE_NAME, finalData, effectiveUserId);
+            await db.put(DATA_STORE_NAME, finalData, targetUserId);
             
             // Also update metadata store to keep states consistent for next reload
             for (const doc of finalData.documents) {
@@ -563,7 +579,10 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     }, [userRef, effectiveUserId, handleSyncStatusChange]);
     
     const handleDeletionsSynced = React.useCallback(async (syncedDeletions: Partial<DeletedIds>) => {
-        if (!effectiveUserId) return;
+        // Use local ref or passed user to ensure we can at least clear dirty state
+        if (!userRef.current) return;
+        const targetUserId = effectiveUserId || userRef.current.id;
+
         const newDeletedIds = { ...deletedIds };
         let changed = false;
         for (const key of Object.keys(syncedDeletions) as Array<keyof DeletedIds>) {
@@ -576,7 +595,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         if (changed) {
             setDeletedIds(newDeletedIds);
             const db = await getDb();
-            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${effectiveUserId}`);
+            await db.put(DATA_STORE_NAME, newDeletedIds, `deletedIds_${targetUserId}`);
         }
     }, [deletedIds, effectiveUserId]);
 
@@ -596,7 +615,8 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
     // Auto Sync
     React.useEffect(() => {
-        if (isOnline && isDirty && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing') {
+        // Fix: Prevent infinite loops by checking if syncStatus is 'error'
+        if (isOnline && isDirty && userSettings.isAutoSyncEnabled && syncStatus !== 'syncing' && syncStatus !== 'error') {
             const handler = setTimeout(() => { manualSync(); }, 3000);
             return () => clearTimeout(handler);
         }
@@ -679,6 +699,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
     // Use effect to automatically trigger download for pending documents
     React.useEffect(() => {
+        // Auto-download only if state is 'pending_download'. Ignored if 'cloud_only'.
         const pendingDocs = data.documents.filter(d => d.localState === 'pending_download');
         if (pendingDocs.length > 0 && isOnline) {
             const downloadNext = async () => {
@@ -763,21 +784,22 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         deleteInvoice: (id: string) => { updateData(p => ({...p, invoices: p.invoices.filter(i => i.id !== id)})); createDeleteFunction('invoices')(id); },
         deleteAssistant: (name: string) => { updateData(p => ({...p, assistants: p.assistants.filter(a => a !== name)})); createDeleteFunction('assistants')(name); },
         
-        // --- LOCAL DELETE ONLY ---
+        // --- LOCAL DELETE ONLY (Modified) ---
         deleteDocument: async (doc: CaseDocument) => {
-            // === LOCAL DELETE ONLY ===
-            // This ensures each user manages their own downloaded files independently.
+            // Instead of deleting from state (which causes re-sync loop),
+            // we delete the file and mark the state as 'cloud_only'.
             const db = await getDb();
             // 1. Remove file from IndexedDB
             await db.delete(DOCS_FILES_STORE_NAME, doc.id);
-            // 2. Remove metadata from IndexedDB
-            await db.delete(DOCS_METADATA_STORE_NAME, doc.id);
             
-            // 3. Update App State
-            updateData(p => ({ ...p, documents: p.documents.filter(d => d.id !== doc.id) }));
+            // 2. Update metadata to 'cloud_only'
+            const updatedDoc: CaseDocument = { ...doc, localState: 'cloud_only' };
+            await db.put(DOCS_METADATA_STORE_NAME, updatedDoc, doc.id);
             
-            // CRITICAL: We DO NOT add this to 'deletedIds' or send a delete request to Supabase.
-            // This prevents deleting the file for other users.
+            // 3. Update App State - Update the item, do NOT remove it.
+            updateData(p => ({ ...p, documents: p.documents.map(d => d.id === doc.id ? updatedDoc : d) }));
+            
+            // We DO NOT add this to 'deletedIds' or send a delete request to Supabase.
         },
 
         addDocuments: async (caseId: string, files: FileList) => {
