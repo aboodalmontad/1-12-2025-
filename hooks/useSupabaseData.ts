@@ -100,6 +100,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const [effectiveUserId, setEffectiveUserId] = React.useState<string | null>(null);
     const [activeProfile, setActiveProfile] = React.useState<Profile | null>(null);
     const [showUnpostponedSessionsModal, setShowUnpostponedSessionsModal] = React.useState(false);
+    const [isDirty, setIsDirty] = React.useState(false);
     const isOnline = useOnlineStatus();
 
     React.useEffect(() => {
@@ -119,7 +120,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                 if (isOnline) {
                     const supabase = getSupabaseClient();
                     if (supabase) {
-                        const { data: profile, error } = await supabase
+                        const { data: profile } = await supabase
                             .from('profiles')
                             .select('*')
                             .eq('id', user.id)
@@ -161,6 +162,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
     const updateData = React.useCallback((updater: React.SetStateAction<AppData>) => {
         if (!effectiveUserId) return;
+        setIsDirty(true);
         setData(curr => {
             const newData = typeof updater === 'function' ? (updater as any)(curr) : updater;
             getDb().then(db => db.put(DATA_STORE_NAME, newData, effectiveUserId));
@@ -170,6 +172,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
     const setFullData = React.useCallback((rawImportedData: any) => {
         if (!effectiveUserId) return;
+        setIsDirty(true);
         const validatedData = validateAndFixData(rawImportedData);
         updateData(validatedData);
     }, [effectiveUserId, updateData]);
@@ -179,6 +182,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         const db = await getDb();
         await db.put(DATA_STORE_NAME, merged, effectiveUserId);
         setData(merged);
+        setIsDirty(false); // تم رفع كافة التغييرات بنجاح
     }, [effectiveUserId]);
 
     const { manualSync, fetchAndRefresh } = useSync({
@@ -266,7 +270,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     return {
         ...data,
         syncStatus, manualSync, isDataLoading, fetchAndRefresh,
-        effectiveUserId, activeProfile, permissions,
+        effectiveUserId, activeProfile, permissions, isDirty,
         allSessions, unpostponedSessions,
         showUnpostponedSessionsModal, setShowUnpostponedSessionsModal,
         postponeSession, setFullData,

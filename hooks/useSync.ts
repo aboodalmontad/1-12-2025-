@@ -41,7 +41,6 @@ const flattenData = (data: AppData): FlatData => {
 const constructData = (flatData: Partial<FlatData>): AppData => {
     const sessionMap = new Map<string, Session[]>();
     (flatData.sessions || []).forEach(s => {
-        // دعم مرن لكلا التسميتين لضمان عدم ضياع الجلسات
         const stageId = (s as any).stage_id || (s as any).stageId;
         if (stageId) {
             if (!sessionMap.has(stageId)) sessionMap.set(stageId, []);
@@ -93,11 +92,12 @@ export const useSync = ({ user, localData, onDataSynced, onSyncStatusChange, isO
             const schemaCheck = await checkSupabaseSchema();
             if (!schemaCheck.success) { setStatus('uninitialized', schemaCheck.message); return; }
 
-            const [remoteDataRaw, remoteDeletions] = await Promise.all([fetchDataFromSupabase(), fetchDeletionsFromSupabase()]);
+            // 1. جلب البيانات من السحابة
+            const remoteDataRaw = await fetchDataFromSupabase();
             const remoteFlatData = transformRemoteToLocal(remoteDataRaw);
             const localFlatData = flattenData(localData);
 
-            // دمج البيانات بذكاء (الدمج يفضل البيانات الأحدث أو البيانات السحابية في حال تعارض الهوية)
+            // 2. دمج البيانات (الدمج يفضل البيانات الأحدث محلياً أو سحابياً بناءً على الهوية)
             const mergedFlatData: Partial<FlatData> = {};
             const keys: (keyof FlatData)[] = ['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'assistants', 'invoices', 'invoice_items', 'case_documents', 'profiles', 'site_finances'];
 
@@ -106,19 +106,26 @@ export const useSync = ({ user, localData, onDataSynced, onSyncStatusChange, isO
                 const localItems = (localFlatData as any)[key] || [];
                 const finalMap = new Map();
                 
-                // إضافة البيانات المحلية أولاً ثم덮 البيانات السحابية لضمان الدقة
-                localItems.forEach((i: any) => finalMap.set(i.id ?? i.name, i));
+                // إضافة البيانات السحابية أولاً
                 remoteItems.forEach((i: any) => finalMap.set(i.id ?? i.name, i));
+                // دمج البيانات المحلية (التغييرات المحلية تفرز فوق السحابية في حال تشابه المعرف)
+                localItems.forEach((i: any) => finalMap.set(i.id ?? i.name, i));
                 
                 (mergedFlatData as any)[key] = Array.from(finalMap.values());
             }
 
+            // 3. رفع النتيجة المدمجة النهائية للسحابة (الدفع - Push)
+            // هذا يضمن تحديث السحابة بأي تغييرات محلية جديدة
+            await upsertDataToSupabase(mergedFlatData, user);
+
+            // 4. تحديث الحالة المحلية بالبيانات المدمجة والمنظمة
             const finalMergedData = constructData(mergedFlatData);
             await onDataSynced(finalMergedData);
+            
             setStatus('synced');
         } catch (err: any) {
             console.error("Sync Error:", err);
-            setStatus('error', err.message);
+            setStatus('error', err.message || 'حدث خطأ أثناء المزامنة');
         }
     }, [localData, isOnline, user, syncStatus, isAuthLoading, onDataSynced]);
 
