@@ -11,7 +11,7 @@ interface AuthPageProps {
     initialMode?: 'login' | 'signup' | 'otp';
     currentUser?: User;
     currentMobile?: string;
-    onVerificationSuccess?: () => void;
+    onVerificationSuccess?: ()void;
     onLogout?: () => void;
 }
 
@@ -64,8 +64,6 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
         }
     }, [currentMobile]);
 
-    // ... (cached credentials logic same as before)
-
     const supabase = getSupabaseClient();
 
     const toggleView = (e: React.MouseEvent) => {
@@ -107,7 +105,6 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
     };
 
     const handleOtpSubmit = async (e: React.FormEvent) => {
-        // ... (otp submit logic same as before)
         e.preventDefault();
         setLoading(true);
         setError(null);
@@ -151,7 +148,6 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
         if (!supabase) { setError("Supabase client is not available."); setLoading(false); return; }
     
         if (authStep === 'login') {
-            // ... (login logic)
             try {
                 const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password: form.password });
                 if (signInError) throw signInError;
@@ -278,7 +274,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 </div>
                 
                 <div className="mt-8 text-center">
-                    <p className="text-xs text-gray-400 mb-1">الإصدار: 4-12-2025</p>
+                    <p className="text-xs text-gray-400 mb-1">الإصدار: 10-2-2026</p>
                     <p className="text-xs text-gray-400">جميع حقوق الملكية محفوظة لشركة الحلول التقنية © {new Date().getFullYear()}</p>
                 </div>
             </div>
