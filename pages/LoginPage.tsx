@@ -278,7 +278,7 @@ const LoginPage: React.FC<AuthPageProps> = ({ onForceSetup, onLoginSuccess, init
                 </div>
                 
                 <div className="mt-8 text-center">
-                    <p className="text-xs text-gray-400 mb-1">الإصدار: 1-12-2025-1</p>
+                    <p className="text-xs text-gray-400 mb-1">الإصدار: 4-12-2025</p>
                     <p className="text-xs text-gray-400">جميع حقوق الملكية محفوظة لشركة الحلول التقنية © {new Date().getFullYear()}</p>
                 </div>
             </div>

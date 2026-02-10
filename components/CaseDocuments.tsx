@@ -70,7 +70,7 @@ const FilePreview: React.FC<{ doc: CaseDocument, onPreview: (doc: CaseDocument) 
     return (
         <div className="relative group border rounded-lg overflow-hidden bg-gray-50 flex flex-col aspect-w-1 aspect-h-1">
             <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={(e) => { e.stopPropagation(); onDelete(doc); }} className="p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 shadow-md" title="حذف من جهازي فقط">
+                <button onClick={(e) => { e.stopPropagation(); onDelete(doc); }} className="p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 shadow-md" title="حذف الوثيقة">
                     <TrashIcon className="w-4 h-4" />
                 </button>
             </div>
@@ -296,6 +296,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
             setIsLoading(true);
             setError(null);
             try {
+                // For cloud_only, calling getDocumentFile will trigger download
                 const retrievedFile = await getDocumentFile(doc.id);
                 if (retrievedFile) {
                     setFile(retrievedFile);
@@ -306,9 +307,11 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
                     if (latestDocState === 'error') {
                         setError('فشل تنزيل الملف. يرجى التحقق من اتصالك بالإنترنت.');
                     } else if (latestDocState === 'cloud_only') {
-                        // This case should be handled by auto-triggering download in useSupabaseData/useEffect,
-                        // but if we are here, it means we are waiting.
-                        // We rely on getDocumentFile to trigger the download state change.
+                        // This case happens during the initial trigger. 
+                        // getDocumentFile should have updated state to downloading.
+                        // We wait for re-render or effect.
+                    } else if (latestDocState === 'downloading') {
+                        // Do nothing, wait.
                     } else {
                         setError('الملف غير متوفر محلياً بعد.');
                     }
@@ -317,7 +320,7 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
         };
         loadFile();
         return () => { if (url) URL.revokeObjectURL(url); };
-    }, [doc.id, getDocumentFile, documents]);
+    }, [doc.id, getDocumentFile, documents, doc.localState]); // Added doc.localState dependency
 
     const handleDownload = () => {
         if (objectUrl) {
@@ -327,8 +330,9 @@ const PreviewModal: React.FC<{ doc: CaseDocument; onClose: () => void }> = ({ do
     };
 
     const renderPreview = () => {
-        if (!file || !objectUrl) return null;
         if (currentDoc.localState === 'downloading') return (<div className="flex flex-col items-center justify-center h-full"><CloudArrowDownIcon className="w-12 h-12 text-blue-500 animate-spin mb-4" /><p className="text-gray-700">جاري تنزيل الملف...</p></div>);
+        if (!file || !objectUrl) return null;
+        
         if (file.type.startsWith('image/')) return <ImageViewer src={objectUrl} alt={doc.name} onClose={onClose} />;
         if (file.type.startsWith('text/')) return <TextPreview file={file} name={doc.name} />;
         if (doc.name.toLowerCase().endsWith('.docx') || doc.name.toLowerCase().endsWith('.doc')) return <DocxPreview file={file} name={doc.name} onClose={onClose} onDownload={handleDownload} />;
@@ -488,6 +492,13 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
     };
     
     const handlePreview = async (doc: CaseDocument) => {
+        // Allow re-download by clicking preview if in cloud_only state
+        if (doc.localState === 'cloud_only') {
+            await getDocumentFile(doc.id);
+            // State will update to downloading -> synced
+            return;
+        }
+
         if (doc.type === 'application/pdf') {
             const file = await getDocumentFile(doc.id);
             if (file) {
@@ -530,11 +541,11 @@ const CaseDocuments: React.FC<CaseDocumentsProps> = ({ caseId }) => {
                             <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-4"><ExclamationTriangleIcon className="h-8 w-8 text-red-600" /></div>
                             <h3 className="text-2xl font-bold">تأكيد حذف الوثيقة</h3>
                             <p className="my-4">هل أنت متأكد من حذف وثيقة "{docToDelete.name}"؟</p>
-                            <p className="text-sm text-gray-500 bg-gray-100 p-2 rounded">ملاحظة: سيتم حذف الملف من جهازك الحالي فقط (لتحرير المساحة) ويبقى محفوظاً في السحابة (cloud_only). يمكنك إعادة تنزيله في أي وقت.</p>
+                            <p className="text-sm text-red-500 bg-red-50 p-2 rounded border border-red-100">تنبيه: سيتم حذف الوثيقة نهائياً من القائمة وحذف الملف المرتبط بها.</p>
                         </div>
                         <div className="mt-6 flex justify-center gap-4">
                             <button className="px-6 py-2 bg-gray-200 rounded-lg" onClick={() => setIsDeleteModalOpen(false)}>إلغاء</button>
-                            <button className="px-6 py-2 bg-red-600 text-white rounded-lg" onClick={confirmDelete}>نعم، حذف محلياً</button>
+                            <button className="px-6 py-2 bg-red-600 text-white rounded-lg" onClick={confirmDelete}>نعم، حذف</button>
                         </div>
                     </div>
                 </div>

@@ -1,4 +1,3 @@
-
 import * as React from 'react';
 import { ClipboardDocumentCheckIcon, ClipboardDocumentIcon, ServerIcon, ShieldCheckIcon, ExclamationTriangleIcon } from './icons';
 

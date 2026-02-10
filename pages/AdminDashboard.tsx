@@ -76,17 +76,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onOpenConfig 
                 tryVibrate();
             }).catch(() => {
                 console.warn('Audio autoplay was blocked. It will be enabled after the first user interaction.');
+                
+                // Fix: Using manual event listener removal to comply with environments that may not support 
+                // the "once" option in addEventListener or have strict type definitions.
                 const enableOnInteraction = () => {
                     attemptPlay().catch(() => {}); // Try again, ignore further errors.
                     tryVibrate();
-                    // Fix: The event listeners are added with the `once: true` option, which automatically
-                    // removes them after they are invoked. Manually calling `removeEventListener` is not
-                    // necessary and was causing an error because it was passed an invalid options object.
+                    window.removeEventListener('click', enableOnInteraction);
+                    window.removeEventListener('touchend', enableOnInteraction);
                     console.log('Audio and Vibration APIs unlocked after user interaction.');
                 };
                 // Set up listeners for the first interaction.
-                window.addEventListener('click', enableOnInteraction, { once: true });
-                window.addEventListener('touchend', enableOnInteraction, { once: true });
+                window.addEventListener('click', enableOnInteraction);
+                window.addEventListener('touchend', enableOnInteraction);
             }); 
         };
 

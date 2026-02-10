@@ -231,7 +231,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     // 2. Auth loading is false if we have an optimistic session, allowing instant render.
     const [isAuthLoading, setIsAuthLoading] = React.useState(!session);
     
-    const [profile, setProfile] = React.useState<Profile | null>(null);
     const [authError, setAuthError] = React.useState<string | null>(null);
     const [showConfigModal, setShowConfigModal] = React.useState(false);
     const [loginMessage, setLoginMessage] = React.useState<string | null>(null);
@@ -248,7 +247,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     const [isShareAssigneeModalOpen, setIsShareAssigneeModalOpen] = React.useState(false);
     const [printableReportData, setPrintableReportData] = React.useState<any | null>(null);
     const [isActionsMenuOpen, setIsActionsMenuOpen] = React.useState(false);
-    const [selectedDate, setSelectedDate] = React.useState(new Date());
+    const [selectedDate, selectedDateSet] = React.useState(new Date());
 
     const printReportRef = React.useRef<HTMLDivElement>(null);
     const actionsMenuRef = React.useRef<HTMLDivElement>(null);
@@ -278,9 +277,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         // Initial Session Check Logic
         const checkSession = async () => {
              // 1. If we are OFFLINE, skip server verification entirely.
-             //    Trust the optimistic session we loaded from localStorage.
              if (!isOnline) {
-                 console.log("App started offline. Trusting cached session.");
                  setIsAuthLoading(false);
                  return;
              }
@@ -290,33 +287,18 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 const { data: { session: serverSession }, error } = await supabase!.auth.getSession();
                 
                 if (error) {
-                    console.warn("Initial session verification failed:", error.message);
                     const errorMessage = error.message.toLowerCase();
-                    
-                    // Handle "Invalid Refresh Token" specifically by aggressively clearing local state
                     if (errorMessage.includes("refresh token") || errorMessage.includes("not found")) {
-                        console.error("Critical Auth Error: Invalid Refresh Token. Cleaning up...");
-                        
                         localStorage.removeItem(LAST_USER_CACHE_KEY);
                         localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
-                        Object.keys(localStorage).forEach(key => {
-                            if (key.startsWith('sb-')) localStorage.removeItem(key);
-                        });
-                        
                         await supabase!.auth.signOut().catch(() => {}); 
                         setSession(null);
                         onRefresh(); 
-                    }
-                    else if (errorMessage.includes("failed to fetch") || errorMessage.includes("network")) {
-                        console.warn("Network error during session check. Keeping optimistic session.");
-                    } else {
-                         setSession(null);
                     }
                 } else if (serverSession) {
                     setSession(serverSession);
                     localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(serverSession.user));
                 } else {
-                    // No session found (logged out)
                     if (session) {
                          setSession(null);
                          localStorage.removeItem(LAST_USER_CACHE_KEY);
@@ -334,17 +316,10 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         return () => subscription.unsubscribe();
     }, [supabase, onRefresh, isOnline]);
     
-    // Fetch user profile when session is available
+    // Fetch data and actual verified profile
     const data = useSupabaseData(session?.user ?? null, isAuthLoading);
 
     React.useEffect(() => {
-        if (session && data.profiles) {
-            const userProfile = data.profiles.find(p => p.id === session.user.id);
-            setProfile(userProfile || null);
-        } else {
-            setProfile(null);
-        }
-        
         // Show unpostponed sessions modal once per session
         const modalShown = sessionStorage.getItem(UNPOSTPONED_MODAL_SHOWN_KEY);
         if (session && data.unpostponedSessions.length > 0 && !modalShown) {
@@ -352,16 +327,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             sessionStorage.setItem(UNPOSTPONED_MODAL_SHOWN_KEY, 'true');
         }
 
-    }, [session, data.profiles, data.unpostponedSessions, data.setShowUnpostponedSessionsModal]);
-
-    // Check for forced update flag on mount
-    React.useEffect(() => {
-        const justUpdated = localStorage.getItem('lawyerAppUpdated');
-        if (justUpdated === 'true') {
-            data.addRealtimeAlert('تم تحديث التطبيق إلى آخر إصدار بنجاح', 'sync');
-            localStorage.removeItem('lawyerAppUpdated');
-        }
-    }, [data.addRealtimeAlert]);
+    }, [session, data.unpostponedSessions, data.setShowUnpostponedSessionsModal]);
 
     // Close actions menu on outside click
     React.useEffect(() => {
@@ -376,25 +342,16 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     
     const handleLogout = async () => {
         try {
-            // 1. Clear storage first
             localStorage.removeItem(LAST_USER_CACHE_KEY);
             localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
-            // Clear Supabase internal keys
             Object.keys(localStorage).forEach(key => {
                 if (key.startsWith('sb-')) localStorage.removeItem(key);
             });
-            
-            // 2. Immediately update state to show Login Page and hide Loader
             setSession(null);
-            setProfile(null);
-            setIsAuthLoading(false);
-
-            // 3. Try to sign out from Supabase (if online)
             await supabase!.auth.signOut();
         } catch (error) {
             console.warn("Logout network failed, state cleared anyway:", error);
         } finally {
-            // 4. Force a hard app refresh/remount instead of browser reload to avoid 404s/refused connections in preview envs
             onRefresh();
         }
     };
@@ -413,7 +370,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
             data.setAdminTasks(prev => prev.map(t => t.id === taskData.id ? { ...t, ...taskData, updated_at: new Date() } : t));
         } else { // Adding
             const { id, ...restOfTaskData } = taskData;
-
             const newLocation = restOfTaskData.location || 'غير محدد';
             const maxOrderIndex = data.adminTasks
                 .filter(t => (t.location || 'غير محدد') === newLocation)
@@ -449,8 +405,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         setCurrentPage('accounting');
     };
 
-    // --- Print/Share Logic (Lifted from HomePage) ---
-    // ... (Report generation logic remains same)
     const handleGenerateAssigneeReport = (assignee: string | null) => {
         const dailyAppointments = data.appointments
             .filter(a => isSameDay(a.date, selectedDate))
@@ -548,32 +502,27 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                 }
             });
         }
-        if (filteredSessions.length === 0 && filteredAppointments.length === 0 && taskLocations.length === 0) message += "لا توجد بنود في جدول الأعمال لهذا اليوم.";
         
         const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
         window.open(whatsappUrl, '_blank');
         setIsShareAssigneeModalOpen(false);
     };
 
-    // --- Render Logic ---
 
-    // Do not show loader if we have a session (optimistic load). 
-    // Only show it if we are truly waiting for initial auth and have no cached session.
+    // 1. Initial Authentication Check
     if (isAuthLoading && !session) {
-        return <FullScreenLoader text="جاري تحميل البيانات..." />;
+        return <FullScreenLoader text="جاري التحقق من الهوية..." />;
     }
     
-    // If we have a session, but data is still loading from IDB, show loader.
-    // NOTE: useSupabaseData now sets isDataLoading to false immediately after loading local data.
-    if (data.isDataLoading && session) {
-         return <FullScreenLoader text="جاري تحميل البيانات..." />;
+    // 2. Identity Resolution and Data Loading
+    if (session && data.isDataLoading) {
+         return <FullScreenLoader text="جاري تحميل ملفك الشخصي وربط البيانات..." />;
     }
     
     const handleLoginSuccess = (user: User, isOfflineLogin: boolean = false) => {
         if (!isOfflineLogin) {
             localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(user));
         }
-        // If offline login, we manually update session here because onAuthStateChange might not fire.
         if (isOfflineLogin) {
              const offlineSession = {
                  access_token: "offline_access_token",
@@ -598,111 +547,86 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         return <LoginPage onForceSetup={() => setShowConfigModal(true)} onLoginSuccess={handleLoginSuccess}/>;
     }
     
-    // Safety check for profile existence before accessing properties
-    const effectiveProfile = profile || data.profiles.find(p => p.id === session.user.id);
+    const effectiveProfile = (data as any).activeProfile;
     
-    if (!effectiveProfile) {
-         // If absolutely no profile data is available yet, show loader
-         // Exception: Offline mode might have no profile loaded yet if cache was cleared.
-         if (isOnline && data.profiles.length === 0) {
-             return <FullScreenLoader text="جاري تحميل الملف الشخصي..." />;
-         }
-         // Fallback for offline edge case or initial load delay
-         if (!isOnline && !profile) {
-             return <FullScreenLoader text="جاري تحميل البيانات..." />;
-         }
-    }
+    if (effectiveProfile) {
+        if (!effectiveProfile.mobile_verified && effectiveProfile.role !== 'admin') {
+             return <LoginPage 
+                 onForceSetup={() => setShowConfigModal(true)} 
+                 onLoginSuccess={handleLoginSuccess}
+                 initialMode="otp"
+                 currentUser={session.user}
+                 currentMobile={effectiveProfile.mobile_number}
+                 onLogout={handleLogout}
+                 onVerificationSuccess={data.fetchAndRefresh}
+             />;
+        }
 
-    // Check mobile verification first
-    if (effectiveProfile && !effectiveProfile.mobile_verified && effectiveProfile.role !== 'admin') {
-         return <LoginPage 
-             onForceSetup={() => setShowConfigModal(true)} 
-             onLoginSuccess={handleLoginSuccess}
-             initialMode="otp"
-             currentUser={session.user}
-             currentMobile={effectiveProfile.mobile_number}
-             onLogout={handleLogout}
-             onVerificationSuccess={data.fetchAndRefresh}
-         />;
-    }
+        if (!effectiveProfile.is_approved) {
+            return <PendingApprovalPage onLogout={handleLogout} />;
+        }
 
-    if (effectiveProfile && !effectiveProfile.is_approved) {
-        return <PendingApprovalPage onLogout={handleLogout} />;
-    }
-
-    if (effectiveProfile && (!effectiveProfile.is_active || (effectiveProfile.subscription_end_date && new Date(effectiveProfile.subscription_end_date) < new Date()))) {
-        return <SubscriptionExpiredPage onLogout={handleLogout} />;
-    }
-    
-    if (effectiveProfile && effectiveProfile.role === 'admin') {
-         return (
-            <DataProvider value={data}>
-                <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
-                <NotificationCenter 
-                    appointmentAlerts={data.triggeredAlerts}
-                    realtimeAlerts={data.realtimeAlerts}
-                    userApprovalAlerts={data.userApprovalAlerts}
-                    dismissAppointmentAlert={data.dismissAlert}
-                    dismissRealtimeAlert={data.dismissRealtimeAlert}
-                    dismissUserApprovalAlert={data.dismissUserApprovalAlert}
-                />
-            </DataProvider>
-        );
+        if (!effectiveProfile.is_active || (effectiveProfile.subscription_end_date && new Date(effectiveProfile.subscription_end_date) < new Date())) {
+            return <SubscriptionExpiredPage onLogout={handleLogout} />;
+        }
+        
+        if (effectiveProfile.role === 'admin') {
+             return (
+                <DataProvider value={data}>
+                    <AdminDashboard onLogout={handleLogout} onOpenConfig={() => setShowConfigModal(true)} />
+                    <NotificationCenter 
+                        appointmentAlerts={data.triggeredAlerts}
+                        realtimeAlerts={data.realtimeAlerts}
+                        userApprovalAlerts={data.userApprovalAlerts}
+                        dismissAppointmentAlert={data.dismissAlert}
+                        dismissRealtimeAlert={data.dismissRealtimeAlert}
+                        dismissUserApprovalAlert={data.dismissUserApprovalAlert}
+                    />
+                </DataProvider>
+            );
+        }
     }
 
     const renderPage = () => {
-        // Permission check wrapper
-        const checkPermission = (allowed: boolean) => {
-            if (allowed) return true;
-            return false;
-        };
-
         switch (currentPage) {
             case 'clients':
-                if (!checkPermission(data.permissions.can_view_clients || data.permissions.can_view_cases)) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
+                if (!(data.permissions.can_view_clients || data.permissions.can_view_cases)) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={selectedDateSet} />;
                 return <ClientsPage showContextMenu={showContextMenu} onOpenAdminTaskModal={handleOpenAdminTaskModal} onCreateInvoice={handleCreateInvoice} />;
             case 'accounting':
-                if (!checkPermission(data.permissions.can_view_finance)) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
+                if (!data.permissions.can_view_finance) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={selectedDateSet} />;
                 return <AccountingPage initialInvoiceData={initialInvoiceData} clearInitialInvoiceData={() => setInitialInvoiceData(undefined)} />;
             case 'settings':
                 return <SettingsPage />;
             case 'admin-tasks':
-                if (!checkPermission(data.permissions.can_view_admin_tasks)) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
-                return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="adminTasks" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
+                if (!data.permissions.can_view_admin_tasks) return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={selectedDateSet} />;
+                return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="adminTasks" selectedDate={selectedDate} setSelectedDate={selectedDateSet} />;
             case 'home':
             default:
-                if (!checkPermission(data.permissions.can_view_agenda)) {
+                if (!data.permissions.can_view_agenda) {
                     return (
                         <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
                             <ExclamationCircleIcon className="w-16 h-16 text-gray-300 mb-4" />
                             <p className="text-lg font-semibold">ليس لديك صلاحية لعرض المفكرة.</p>
-                            <p className="text-sm">يرجى التواصل مع المحامي لتحديث الصلاحيات.</p>
                         </div>
                     );
                 }
-                return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={setSelectedDate} />;
+                return <HomePage onOpenAdminTaskModal={handleOpenAdminTaskModal} showContextMenu={showContextMenu} mainView="agenda" selectedDate={selectedDate} setSelectedDate={selectedDateSet} />;
         }
     };
     
     const homePageActions = (
         <div ref={actionsMenuRef} className="relative">
-            <button
-                onClick={() => setIsActionsMenuOpen(prev => !prev)}
-                className="p-2 text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
-                aria-label="إجراءات جدول الأعمال"
-                aria-haspopup="true"
-                aria-expanded={isActionsMenuOpen}
-            >
+            <button onClick={() => setIsActionsMenuOpen(prev => !prev)} className="p-2 text-gray-600 rounded-full hover:bg-gray-100 transition-colors">
                 <PrintIcon className="w-5 h-5" />
             </button>
             {isActionsMenuOpen && (
                 <div className="absolute left-0 mt-2 w-56 origin-top-left bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-20">
-                    <div className="py-1" role="menu" aria-orientation="vertical">
-                        <button onClick={() => { setIsPrintAssigneeModalOpen(true); setIsActionsMenuOpen(false); }} className="w-full text-right flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">
+                    <div className="py-1">
+                        <button onClick={() => { setIsPrintAssigneeModalOpen(true); setIsActionsMenuOpen(false); }} className="w-full text-right flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
                             <PrintIcon className="w-5 h-5 text-gray-500" />
                             <span>طباعة جدول الأعمال</span>
                         </button>
-                        <button onClick={() => { setIsShareAssigneeModalOpen(true); setIsActionsMenuOpen(false); }} className="w-full text-right flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">
+                        <button onClick={() => { setIsShareAssigneeModalOpen(true); setIsActionsMenuOpen(false); }} className="w-full text-right flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
                             <ShareIcon className="w-5 h-5 text-gray-500" />
                             <span>إرسال عبر واتساب</span>
                         </button>
@@ -730,123 +654,43 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                     permissions={data.permissions}
                 />
                 <OfflineBanner />
-                {/* Added padding-bottom to main content to prevent overlap with the mobile nav */}
                 <main className="flex-grow p-4 sm:p-6 overflow-y-auto pb-20 sm:pb-6">
                     {renderPage()}
                 </main>
-                
                 <MobileNavbar currentPage={currentPage} onNavigate={handleNavigation} permissions={data.permissions} />
-
-                <AdminTaskModal 
-                    isOpen={isAdminTaskModalOpen}
-                    onClose={() => setIsAdminTaskModalOpen(false)}
-                    onSubmit={handleSaveAdminTask}
-                    initialData={initialAdminTaskData}
-                    assistants={data.assistants}
-                />
-
-                <ContextMenu 
-                    isOpen={contextMenu.isOpen}
-                    position={contextMenu.position}
-                    menuItems={contextMenu.menuItems}
-                    onClose={closeContextMenu}
-                />
-                
-                <UnpostponedSessionsModal
-                    isOpen={data.showUnpostponedSessionsModal}
-                    onClose={() => data.setShowUnpostponedSessionsModal(false)}
-                    sessions={data.unpostponedSessions}
-                    onPostpone={data.postponeSession}
-                    assistants={data.assistants}
-                />
-
-                <NotificationCenter 
-                    appointmentAlerts={data.triggeredAlerts}
-                    realtimeAlerts={data.realtimeAlerts}
-                    userApprovalAlerts={data.userApprovalAlerts}
-                    dismissAppointmentAlert={data.dismissAlert}
-                    dismissRealtimeAlert={data.dismissRealtimeAlert}
-                    dismissUserApprovalAlert={data.dismissUserApprovalAlert}
-                />
-
-                 {/* Modals lifted from HomePage */}
+                <AdminTaskModal isOpen={isAdminTaskModalOpen} onClose={() => setIsAdminTaskModalOpen(false)} onSubmit={handleSaveAdminTask} assistants={data.assistants} />
+                <ContextMenu isOpen={contextMenu.isOpen} position={contextMenu.position} menuItems={contextMenu.menuItems} onClose={closeContextMenu} />
+                <UnpostponedSessionsModal isOpen={data.showUnpostponedSessionsModal} onClose={() => data.setShowUnpostponedSessionsModal(false)} sessions={data.unpostponedSessions} onPostpone={data.postponeSession} assistants={data.assistants} />
+                <NotificationCenter appointmentAlerts={data.triggeredAlerts} realtimeAlerts={data.realtimeAlerts} userApprovalAlerts={data.userApprovalAlerts} dismissAppointmentAlert={data.dismissAlert} dismissRealtimeAlert={data.dismissRealtimeAlert} dismissUserApprovalAlert={data.dismissUserApprovalAlert} />
                 {isPrintAssigneeModalOpen && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto" onClick={() => setIsPrintAssigneeModalOpen(false)}>
                         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
                             <h2 className="text-xl font-bold mb-4 border-b pb-3">اختر الشخص لطباعة جدول أعماله</h2>
                             <div className="space-y-3 max-h-80 overflow-y-auto">
-                                <button onClick={() => handleGenerateAssigneeReport(null)} className="w-full text-right px-4 py-3 bg-blue-50 text-blue-800 font-semibold rounded-lg hover:bg-blue-100 transition-colors">
-                                    طباعة جدول الأعمال العام (لكل المهام اليومية)
-                                </button>
-                                <h3 className="text-md font-semibold text-gray-600 pt-2">أو طباعة لشخص محدد:</h3>
-                                {data.assistants.map(name => (
-                                    <button
-                                        key={name}
-                                        onClick={() => handleGenerateAssigneeReport(name)}
-                                        className="w-full text-right block px-4 py-2 bg-gray-50 text-gray-800 rounded-md hover:bg-gray-100 transition-colors"
-                                    >
-                                        {name}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="mt-6 flex justify-end">
-                                <button type="button" onClick={() => setIsPrintAssigneeModalOpen(false)} className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors">إغلاق</button>
+                                <button onClick={() => handleGenerateAssigneeReport(null)} className="w-full text-right px-4 py-3 bg-blue-50 text-blue-800 font-semibold rounded-lg hover:bg-blue-100 transition-colors">طباعة جدول الأعمال العام</button>
+                                {data.assistants.map(name => <button key={name} onClick={() => handleGenerateAssigneeReport(name)} className="w-full text-right block px-4 py-2 bg-gray-50 text-gray-800 rounded-md hover:bg-gray-100 transition-colors">{name}</button>)}
                             </div>
                         </div>
                     </div>
                 )}
-                
                 {isShareAssigneeModalOpen && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 no-print p-4 overflow-y-auto" onClick={() => setIsShareAssigneeModalOpen(false)}>
                         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-                            <h2 className="text-xl font-bold mb-4 border-b pb-3">اختر الشخص لإرسال جدول أعماله عبر واتساب</h2>
+                            <h2 className="text-xl font-bold mb-4 border-b pb-3">اختر الشخص لإرسال جدول أعماله</h2>
                             <div className="space-y-3 max-h-80 overflow-y-auto">
-                                <button
-                                    onClick={() => handleShareAssigneeReport(null)}
-                                    className="w-full text-right px-4 py-3 bg-green-50 text-green-800 font-semibold rounded-lg hover:bg-green-100 transition-colors"
-                                >
-                                    إرسال جدول الأعمال العام (لكل المهام اليومية)
-                                </button>
-                                <h3 className="text-md font-semibold text-gray-600 pt-2">أو إرسال لشخص محدد:</h3>
-                                {data.assistants.map(name => (
-                                    <button
-                                        key={name}
-                                        onClick={() => handleShareAssigneeReport(name)}
-                                        className="w-full text-right block px-4 py-2 bg-gray-50 text-gray-800 rounded-md hover:bg-gray-100 transition-colors"
-                                    >
-                                        {name}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="mt-6 flex justify-end">
-                                <button type="button" onClick={() => setIsShareAssigneeModalOpen(false)} className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors">إغلاق</button>
+                                <button onClick={() => handleShareAssigneeReport(null)} className="w-full text-right px-4 py-3 bg-green-50 text-green-800 font-semibold rounded-lg hover:bg-green-100 transition-colors">إرسال جدول الأعمال العام</button>
+                                {data.assistants.map(name => <button key={name} onClick={() => handleShareAssigneeReport(name)} className="w-full text-right block px-4 py-2 bg-gray-50 text-gray-800 rounded-md hover:bg-gray-100 transition-colors">{name}</button>)}
                             </div>
                         </div>
                     </div>
                 )}
-
                 {isPrintModalOpen && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setIsPrintModalOpen(false)}>
                         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                            <div className="overflow-y-auto" ref={printReportRef}>
-                                <PrintableReport reportData={printableReportData} />
-                            </div>
+                            <div className="overflow-y-auto" ref={printReportRef}><PrintableReport reportData={printableReportData} /></div>
                             <div className="mt-6 flex justify-end gap-4 border-t pt-4 no-print">
-                                <button
-                                    type="button"
-                                    className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors"
-                                    onClick={() => setIsPrintModalOpen(false)}
-                                >
-                                    إغلاق
-                                </button>
-                                <button
-                                    type="button"
-                                    className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-                                    onClick={() => printElement(printReportRef.current)}
-                                >
-                                    <PrintIcon className="w-5 h-5" />
-                                    <span>طباعة</span>
-                                </button>
+                                <button type="button" className="px-6 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300" onClick={() => setIsPrintModalOpen(false)}>إغلاق</button>
+                                <button type="button" className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700" onClick={() => printElement(printReportRef.current)}><PrintIcon className="w-5 h-5" /><span>طباعة</span></button>
                             </div>
                         </div>
                     </div>

@@ -1,3 +1,4 @@
+
 /**
  * @deprecated This component's functionality has been moved into `hooks/useSupabaseData.ts` 
  * to support synchronization of documents across devices.
@@ -14,8 +15,8 @@ export const useCaseDocuments = (caseId: string) => {
         documents: [], 
         loading: false, 
         error: "This hook is deprecated.", 
-        // Fix: Changed function signature to accept any arguments to prevent type errors in consuming components before they are refactored.
-        addDocuments: async (...args: any[]) => {}, 
-        deleteDocument: async (...args: any[]) => {} 
+        // Fix: Explicitly returning void from these empty async functions to satisfy the type checker.
+        addDocuments: async (...args: any[]): Promise<void> => { return; }, 
+        deleteDocument: async (...args: any[]): Promise<void> => { return; } 
     };
 };
