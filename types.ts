@@ -307,6 +307,9 @@ export interface AppData {
     profiles: Profile[];
     siteFinances: SiteFinancialEntry[];
     ignoredDocumentIds: string[];
+    // Fix: Added adminTasksLayout and locationOrder properties to match usage in components
+    adminTasksLayout?: 'horizontal' | 'vertical';
+    locationOrder?: string[];
 }
 
 /**

@@ -9,8 +9,8 @@ import AssistantsManager from '../components/AssistantsManager';
 interface SettingsPageProps {}
 
 const SettingsPage: React.FC<SettingsPageProps> = () => {
-    const { setFullData, assistants, setAssistants, userId, isAutoSyncEnabled, setAutoSyncEnabled, isAutoBackupEnabled, setAutoBackupEnabled, adminTasksLayout, setAdminTasksLayout, deleteAssistant, exportData, permissions } = useData();
-    const [feedback, setFeedback] = React.useState<{ message: string; type: 'success' | 'error' } | null>(null);
+    const { setFullData, assistants, setAssistants, userId, isAutoSyncEnabled, setAutoSyncEnabled, isAutoBackupEnabled, setAutoBackupEnabled, adminTasksLayout, setAdminTasksLayout, deleteAssistant, exportData, permissions, manualSync } = useData();
+    const [feedback, setFeedback] = React.useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = React.useState(false);
     const [isDeleteAssistantModalOpen, setIsDeleteAssistantModalOpen] = React.useState(false);
     const [assistantToDelete, setAssistantToDelete] = React.useState<string | null>(null);
@@ -18,9 +18,9 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
     const [dbStats, setDbStats] = React.useState<string | null>(null);
     const [isAssistantsManagerOpen, setIsAssistantsManagerOpen] = React.useState(false);
 
-    const showFeedback = (message: string, type: 'success' | 'error') => {
+    const showFeedback = (message: string, type: 'success' | 'error' | 'info') => {
         setFeedback({ message, type });
-        setTimeout(() => setFeedback(null), 4000);
+        setTimeout(() => setFeedback(null), 5000);
     };
 
     const handleConfirmClearData = () => {
@@ -53,20 +53,32 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
         if (!file) return;
 
         const reader = new FileReader();
-        reader.onload = (e) => { 
+        reader.onload = async (e) => { 
             try { 
                 const text = e.target?.result; 
                 if (typeof text !== 'string') throw new Error("لا يمكن قراءة ملف النسخة الاحتياطية."); 
                 
                 const importedData = JSON.parse(text); 
                 
-                // التأكد من وجود الحقول الأساسية على الأقل
                 if (!importedData || typeof importedData !== 'object') {
                     throw new Error("تنسيق ملف النسخة الاحتياطية غير صحيح.");
                 }
 
+                // تحميل البيانات محلياً أولاً
                 setFullData(importedData); 
-                showFeedback('تم استيراد البيانات بنجاح وتحديث النظام.', 'success'); 
+                showFeedback('تم تحميل البيانات محلياً. جاري المزامنة مع السحابة الآن...', 'info'); 
+
+                // طلب مزامنة فورية لرفع البيانات المستوردة
+                setTimeout(async () => {
+                    try {
+                        await manualSync();
+                        showFeedback('تم استيراد البيانات ومزامنتها بنجاح مع السحابة.', 'success');
+                    } catch (syncErr: any) {
+                        console.error("Sync after import failed:", syncErr);
+                        showFeedback('تم الاستيراد محلياً ولكن فشلت المزامنة التلقائية. يرجى الضغط على زر المزامنة اليدوي.', 'error');
+                    }
+                }, 1000);
+
             } catch (error: any) { 
                 console.error("Import process failed:", error);
                 showFeedback(`فشل استيراد البيانات: ${error.message || 'خطأ غير معروف'}`, 'error'); 
@@ -76,7 +88,6 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
             showFeedback('فشل قراءة الملف من الجهاز.', 'error');
         };
         reader.readAsText(file);
-        // تصفير قيمة المدخل للسماح باختيار نفس الملف مرة أخرى إذا لزم الأمر
         event.target.value = '';
     };
 
@@ -134,8 +145,14 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
         <div className="space-y-6">
             <h1 className="text-3xl font-bold text-gray-800">الإعدادات</h1>
             {feedback && (
-                <div className={`p-4 rounded-lg flex items-center gap-3 animate-fade-in ${feedback.type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200'}`}>
-                    {feedback.type === 'success' ? <CheckCircleIcon className="w-5 h-5"/> : <ExclamationTriangleIcon className="w-5 h-5"/>}
+                <div className={`p-4 rounded-lg flex items-center gap-3 animate-fade-in transition-all duration-500 ${
+                    feedback.type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 
+                    feedback.type === 'info' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
+                    'bg-red-100 text-red-800 border border-red-200'
+                }`}>
+                    {feedback.type === 'success' ? <CheckCircleIcon className="w-5 h-5"/> : 
+                     feedback.type === 'info' ? <ArrowPathIcon className="w-5 h-5 animate-spin"/> :
+                     <ExclamationTriangleIcon className="w-5 h-5"/>}
                     <span>{feedback.message}</span>
                 </div>
             )}
