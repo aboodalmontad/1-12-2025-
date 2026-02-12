@@ -20,10 +20,10 @@ const CopyButton: React.FC<{ textToCopy: string }> = ({ textToCopy }) => {
 
 const unifiedScript = `
 -- =================================================================
--- سكربت الإصلاح الجذري (الإصدار 2.3): حل نهائي لـ RLS والمزامنة اللانهائية
+-- سكربت الإصلاح النهائي الشامل (الإصدار 2.7)
 -- =================================================================
 
--- 1. وظيفة محسنة للحصول على معرف صاحب المكتب
+-- 1. وظيفة الحصول على معرف صاحب المكتب
 CREATE OR REPLACE FUNCTION public.get_data_owner_id()
 RETURNS uuid AS $$
 BEGIN
@@ -34,40 +34,39 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- 2. إتاحة صلاحية التنفيذ
 GRANT EXECUTE ON FUNCTION public.get_data_owner_id() TO authenticated;
 
--- 3. تفعيل RLS وتحديث السياسات
+-- 2. تفعيل RLS وتوحيد السياسات للجداول الأساسية
 DO $$
 DECLARE
     t text;
     tables text[] := ARRAY[
-        'profiles', 'assistants', 'clients', 'cases', 'stages', 'sessions', 
+        'assistants', 'clients', 'cases', 'stages', 'sessions', 
         'admin_tasks', 'appointments', 'accounting_entries', 
         'invoices', 'invoice_items', 'case_documents', 'site_finances', 'sync_deletions'
     ];
 BEGIN
     FOR t IN SELECT unnest(tables) LOOP
         EXECUTE 'ALTER TABLE public.' || t || ' ENABLE ROW LEVEL SECURITY';
-        EXECUTE 'DROP POLICY IF EXISTS "Unified Access Policy v2" ON public.' || t;
-        EXECUTE 'DROP POLICY IF EXISTS "Unified Access Policy v2.1" ON public.' || t;
-        EXECUTE 'DROP POLICY IF EXISTS "Unified Access Policy v2.2" ON public.' || t;
-        EXECUTE 'DROP POLICY IF EXISTS "Unified Access Policy v2.3" ON public.' || t;
+        EXECUTE 'DROP POLICY IF EXISTS "Unified Access Policy v2.4" ON public.' || t;
+        EXECUTE 'DROP POLICY IF EXISTS "Unified Access Policy v2.5" ON public.' || t;
+        EXECUTE 'DROP POLICY IF EXISTS "Unified Access Policy v2.6" ON public.' || t;
+        EXECUTE 'DROP POLICY IF EXISTS "Unified Access Policy v2.7" ON public.' || t;
         
-        -- سياسة الإصدار 2.3: 
-        -- USING: تسمح بالوصول إذا كان السجل يتبع للمستخدم (لضمان معالجة البيانات القديمة) أو لصاحب المكتب
-        -- WITH CHECK: السجلات الجديدة تتبع دائماً لصاحب المكتب لتوحيد البيانات
-        IF t = 'profiles' THEN
-             EXECUTE 'CREATE POLICY "Unified Access Policy v2.3" ON public.' || t || ' FOR ALL TO authenticated 
-             USING (true) 
-             WITH CHECK (id = auth.uid() OR role = ''admin'')';
-        ELSE
-            EXECUTE 'CREATE POLICY "Unified Access Policy v2.3" ON public.' || t || ' FOR ALL TO authenticated 
-            USING (user_id = auth.uid() OR user_id = public.get_data_owner_id()) 
-            WITH CHECK (user_id = public.get_data_owner_id())';
-        END IF;
+        EXECUTE 'CREATE POLICY "Unified Access Policy v2.7" ON public.' || t || ' FOR ALL TO authenticated 
+        USING (user_id = public.get_data_owner_id()) 
+        WITH CHECK (user_id = public.get_data_owner_id())';
     END LOOP;
 END $$;
+
+-- 3. سياسة جدول Profiles (إصلاح خطأ admin النهائي)
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Unified Access Policy v2.5" ON public.profiles;
+DROP POLICY IF EXISTS "Unified Access Policy v2.6" ON public.profiles;
+DROP POLICY IF EXISTS "Unified Access Policy v2.7" ON public.profiles;
+CREATE POLICY "Unified Access Policy v2.7" ON public.profiles FOR ALL TO authenticated 
+USING (true) 
+WITH CHECK (id = auth.uid() OR role = 'admin');
 
 -- 4. صلاحيات التخزين
 DO $$
@@ -90,20 +89,20 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
                 <div className="flex items-center gap-3 mb-4 text-blue-600">
                     <ShieldCheckIcon className="w-8 h-8" />
-                    <h2 className="text-2xl font-bold">تحديث سياسات المزامنة v2.3</h2>
+                    <h2 className="text-2xl font-bold">تحديث سياسات المزامنة v2.7</h2>
                 </div>
                 
                 <div className="overflow-y-auto flex-grow pr-2 text-right" dir="rtl">
                     <div className="bg-amber-50 border-s-4 border-amber-500 p-4 mb-4 rounded">
                         <p className="text-sm text-amber-700 font-bold">
-                            تنبيه: هذا التحديث (2.3) يحل مشكلة "new row violates row-level security policy" عند استيراد البيانات.
+                            هذا التحديث (2.7) يحل مشكلة فشل الرفع والتعليق المستمر. يرجى تشغيل السكربت في Supabase أولاً.
                         </p>
                     </div>
 
                     <ol className="list-decimal list-inside space-y-4 text-sm text-gray-600 mb-6">
                         <li className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                             <div className="flex justify-between items-center mb-2">
-                                <strong className="text-gray-900 font-bold">1. انسخ السكربت المحدث v2.3:</strong>
+                                <strong className="text-gray-900 font-bold">1. انسخ السكربت v2.7:</strong>
                                 <CopyButton textToCopy={unifiedScript} />
                             </div>
                             <div className="relative">
@@ -114,12 +113,12 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
                         </li>
                         <li>2. افتح <strong>SQL Editor</strong> في لوحة تحكم Supabase.</li>
                         <li>3. الصق الكود واضغط <strong>Run</strong>.</li>
-                        <li>4. اضغط على زر <strong>إعادة المحاولة</strong> لتفعيل المزامنة.</li>
+                        <li>4. اضغط على زر <strong>إعادة المحاولة</strong> أدناه.</li>
                     </ol>
                 </div>
 
                 <div className="mt-6 flex justify-end pt-4 border-t">
-                    <button onClick={onRetry} className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-md">إعادة المحاولة والتحقق</button>
+                    <button onClick={onRetry} className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-md">إعادة المحاولة</button>
                 </div>
             </div>
         </div>

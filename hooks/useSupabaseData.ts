@@ -29,23 +29,37 @@ async function getDb(): Promise<IDBPDatabase> {
   });
 }
 
+/**
+ * Deeply sanitizes an object by removing user_id and lawyer_id recursively.
+ */
+const deepSanitize = (obj: any): any => {
+    if (Array.isArray(obj)) {
+        return obj.map(item => deepSanitize(item));
+    } else if (obj !== null && typeof obj === 'object') {
+        const newObj: any = {};
+        for (const key in obj) {
+            if (key !== 'user_id' && key !== 'lawyer_id') {
+                newObj[key] = deepSanitize(obj[key]);
+            }
+        }
+        return newObj;
+    }
+    return obj;
+};
+
 const validateAndFixData = (loadedData: any): AppData => {
     if (!loadedData || typeof loadedData !== 'object') return getInitialData();
     
+    // التطهير العميق للبيانات المستوردة لضمان توافقها مع RLS
+    const sanitized = deepSanitize(loadedData);
+
     const reviveDate = (d: any) => {
         if (!d) return new Date();
         const date = new Date(d);
         return isNaN(date.getTime()) ? new Date() : date;
     };
 
-    // وظيفة لتنظيف الكائنات من الـ user_id القديم لضمان عدم حدوث تعارض RLS عند الاستيراد
-    const sanitize = (item: any) => {
-        if (!item || typeof item !== 'object') return item;
-        const { user_id, ...rest } = item;
-        return rest;
-    };
-
-    const rawAssistants = Array.isArray(loadedData.assistants) ? loadedData.assistants : [...defaultAssistants];
+    const rawAssistants = Array.isArray(sanitized.assistants) ? sanitized.assistants : [...defaultAssistants];
     const cleanAssistants = rawAssistants.map((a: any) => {
         if (typeof a === 'string') return a;
         if (a && typeof a === 'object' && a.name) return a.name;
@@ -53,71 +67,62 @@ const validateAndFixData = (loadedData: any): AppData => {
     });
 
     return {
-        clients: (loadedData.clients || []).map((c: any) => {
-            const cleanClient = sanitize(c);
-            return {
-                ...cleanClient,
-                cases: (c.cases || []).map((cs: any) => {
-                    const cleanCase = sanitize(cs);
-                    return {
-                        ...cleanCase,
-                        stages: (cs.stages || []).map((st: any) => {
-                            const cleanStage = sanitize(st);
-                            return {
-                                ...cleanStage,
-                                sessions: (st.sessions || []).map((s: any) => ({ 
-                                    ...sanitize(s), 
-                                    date: reviveDate(s.date), 
-                                    nextSessionDate: s.nextSessionDate ? reviveDate(s.nextSessionDate) : undefined,
-                                    updated_at: s.updated_at ? reviveDate(s.updated_at) : undefined
-                                })),
-                                decisionDate: st.decisionDate ? reviveDate(st.decisionDate) : undefined,
-                                updated_at: st.updated_at ? reviveDate(st.updated_at) : undefined
-                            };
-                        }),
-                        updated_at: cs.updated_at ? reviveDate(cs.updated_at) : undefined
-                    };
-                }),
-                updated_at: c.updated_at ? reviveDate(c.updated_at) : undefined
-            };
-        }),
-        adminTasks: (loadedData.adminTasks || []).map((t: any) => ({ 
-            ...sanitize(t), 
+        clients: (sanitized.clients || []).map((c: any) => ({
+            ...c,
+            cases: (c.cases || []).map((cs: any) => ({
+                ...cs,
+                stages: (cs.stages || []).map((st: any) => ({
+                    ...st,
+                    sessions: (st.sessions || []).map((s: any) => ({ 
+                        ...s, 
+                        date: reviveDate(s.date), 
+                        nextSessionDate: s.nextSessionDate ? reviveDate(s.nextSessionDate) : undefined,
+                        updated_at: s.updated_at ? reviveDate(s.updated_at) : undefined
+                    })),
+                    decisionDate: st.decisionDate ? reviveDate(st.decisionDate) : undefined,
+                    updated_at: st.updated_at ? reviveDate(st.updated_at) : undefined
+                })),
+                updated_at: cs.updated_at ? reviveDate(cs.updated_at) : undefined
+            })),
+            updated_at: c.updated_at ? reviveDate(c.updated_at) : undefined
+        })),
+        adminTasks: (sanitized.adminTasks || []).map((t: any) => ({ 
+            ...t, 
             dueDate: reviveDate(t.dueDate),
             updated_at: t.updated_at ? reviveDate(t.updated_at) : undefined
         })),
-        appointments: (loadedData.appointments || []).map((a: any) => ({ 
-            ...sanitize(a), 
+        appointments: (sanitized.appointments || []).map((a: any) => ({ 
+            ...a, 
             date: reviveDate(a.date),
             updated_at: a.updated_at ? reviveDate(a.updated_at) : undefined
         })),
-        accountingEntries: (loadedData.accountingEntries || []).map((e: any) => ({ 
-            ...sanitize(e), 
+        accountingEntries: (sanitized.accountingEntries || []).map((e: any) => ({ 
+            ...e, 
             date: reviveDate(e.date),
             updated_at: e.updated_at ? reviveDate(e.updated_at) : undefined
         })),
-        invoices: (loadedData.invoices || []).map((i: any) => ({ 
-            ...sanitize(i), 
+        invoices: (sanitized.invoices || []).map((i: any) => ({ 
+            ...i, 
             issueDate: reviveDate(i.issueDate), 
             dueDate: reviveDate(i.dueDate),
-            items: (i.items || []).map(sanitize),
+            items: (i.items || []),
             updated_at: i.updated_at ? reviveDate(i.updated_at) : undefined
         })),
         assistants: cleanAssistants,
-        documents: (loadedData.documents || []).map((d: any) => ({ 
-            ...sanitize(d), 
+        documents: (sanitized.documents || []).map((d: any) => ({ 
+            ...d, 
             addedAt: reviveDate(d.addedAt),
             updated_at: d.updated_at ? reviveDate(d.updated_at) : undefined
         })),
-        profiles: (loadedData.profiles || []),
-        siteFinances: (loadedData.siteFinances || []).map((sf: any) => ({
-            ...sanitize(sf),
+        profiles: (sanitized.profiles || []),
+        siteFinances: (sanitized.siteFinances || []).map((sf: any) => ({
+            ...sf,
             payment_date: sf.payment_date ? reviveDate(sf.payment_date) : new Date(),
             updated_at: sf.updated_at ? reviveDate(sf.updated_at) : undefined
         })),
-        ignoredDocumentIds: loadedData.ignoredDocumentIds || [],
-        adminTasksLayout: loadedData.adminTasksLayout || 'horizontal',
-        locationOrder: loadedData.locationOrder || [],
+        ignoredDocumentIds: sanitized.ignoredDocumentIds || [],
+        adminTasksLayout: sanitized.adminTasksLayout || 'horizontal',
+        locationOrder: sanitized.locationOrder || [],
     };
 };
 
@@ -199,9 +204,10 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
 
     const setFullData = React.useCallback((rawImportedData: any) => {
         if (!effectiveUserId) return;
-        setIsDirty(true);
+        // تنظيف البيانات المستوردة من أي معرفات مستخدمين قديمة
         const validatedData = validateAndFixData(rawImportedData);
         setData(validatedData);
+        setIsDirty(true); 
         getDb().then(db => db.put(DATA_STORE_NAME, validatedData, effectiveUserId));
     }, [effectiveUserId]);
 
@@ -210,7 +216,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         const db = await getDb();
         await db.put(DATA_STORE_NAME, merged, effectiveUserId);
         setData(merged);
-        setIsDirty(false);
+        setIsDirty(false); 
     }, [effectiveUserId]);
 
     const { manualSync, fetchAndRefresh } = useSync({
@@ -269,9 +275,9 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                             id: `session-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
                             court: oldSession.court,
                             caseNumber: oldSession.caseNumber,
-                            date: newDate,
                             clientName: oldSession.clientName,
                             opponentName: oldSession.opponentName,
+                            date: newDate,
                             isPostponed: false,
                             postponementReason: newReason,
                             assignee: oldSession.assignee,

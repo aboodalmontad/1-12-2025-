@@ -1,8 +1,8 @@
 
 import * as React from 'react';
 import type { User } from '@supabase/supabase-js';
-import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, transformRemoteToLocal, fetchDeletionsFromSupabase } from './useOnlineData';
-import { Client, Case, Stage, Session, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, SyncDeletion } from '../types';
+import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, transformRemoteToLocal } from './useOnlineData';
+import { Client, Case, Stage, Session, AppData, DeletedIds } from '../types';
 
 export type SyncStatus = 'loading' | 'syncing' | 'synced' | 'error' | 'unconfigured' | 'uninitialized';
 
@@ -84,65 +84,74 @@ const constructData = (flatData: Partial<FlatData>): AppData => {
 };
 
 export const useSync = ({ user, ownerId, localData, onDataSynced, onSyncStatusChange, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
-    const setStatus = (status: SyncStatus, error: string | null = null) => { onSyncStatusChange(status, error); };
+    const isSyncingRef = React.useRef(false);
 
     const manualSync = React.useCallback(async () => {
-        if (syncStatus === 'syncing' || isAuthLoading || !isOnline || !user || !ownerId) return;
+        if (isSyncingRef.current || syncStatus === 'syncing' || !isOnline || !user || !ownerId) return;
         
-        setStatus('syncing', 'جاري المزامنة...');
+        isSyncingRef.current = true;
+        onSyncStatusChange('syncing', 'جاري معالجة البيانات...');
+        
         try {
             const schemaCheck = await checkSupabaseSchema();
-            if (!schemaCheck.success) { setStatus('uninitialized', schemaCheck.message); return; }
+            if (!schemaCheck.success) { 
+                onSyncStatusChange('uninitialized', schemaCheck.message); 
+                isSyncingRef.current = false;
+                return; 
+            }
 
-            // 1. جلب البيانات السحابية (Pull)
+            console.log("Sync starting: Pulling remote...");
             const remoteDataRaw = await fetchDataFromSupabase();
             const remoteFlatData = transformRemoteToLocal(remoteDataRaw);
             const localFlatData = flattenData(localData);
 
-            // 2. دمج البيانات (الدمج يفضل البيانات الأحدث بناءً على الطوابع الزمنية إن وجدت، أو يدمج المفقود)
             const mergedFlatData: Partial<FlatData> = {};
             const keys: (keyof FlatData)[] = ['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'assistants', 'invoices', 'invoice_items', 'case_documents', 'profiles', 'site_finances'];
+
+            let localNeedsPush = false;
 
             for (const key of keys) {
                 const remoteItems = (remoteFlatData as any)[key] || [];
                 const localItems = (localFlatData as any)[key] || [];
                 const finalMap = new Map();
                 
-                // إضافة السحابي أولاً
                 remoteItems.forEach((i: any) => finalMap.set(i.id ?? i.name, i));
                 
-                // دمج المحلي: إذا كان العنصر موجوداً سحابياً، ندمجه بحرص. إذا كان جديداً محلياً، نضيفه.
                 localItems.forEach((i: any) => {
                     const id = i.id ?? i.name;
                     const existing = finalMap.get(id);
                     if (!existing) {
                         finalMap.set(id, i);
+                        localNeedsPush = true;
                     } else {
-                        // هنا نفضل النسخة الأحدث بناءً على updated_at
                         const remoteDate = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
                         const localDate = i.updated_at ? new Date(i.updated_at).getTime() : 0;
                         if (localDate > remoteDate) {
                             finalMap.set(id, i);
+                            localNeedsPush = true;
                         }
                     }
                 });
-                
                 (mergedFlatData as any)[key] = Array.from(finalMap.values());
             }
 
-            // 3. رفع النتيجة المدمجة للسحابة (Push)
-            await upsertDataToSupabase(mergedFlatData, ownerId);
+            if (localNeedsPush) {
+                console.log("Sync: Pushing local changes in batches...");
+                onSyncStatusChange('syncing', 'جاري رفع البيانات إلى السحابة...');
+                await upsertDataToSupabase(mergedFlatData, ownerId);
+            }
 
-            // 4. تحديث الحالة المحلية
             const finalMergedData = constructData(mergedFlatData);
             await onDataSynced(finalMergedData);
-            
-            setStatus('synced');
+            onSyncStatusChange('synced', null);
+            console.log("Sync finished successfully.");
         } catch (err: any) {
-            console.error("Sync Error:", err);
-            setStatus('error', err.message || 'حدث خطأ أثناء المزامنة');
+            console.error("Sync error:", err);
+            onSyncStatusChange('error', err.message || 'فشل الاتصال بالسيرفر');
+        } finally {
+            isSyncingRef.current = false;
         }
-    }, [localData, isOnline, user, ownerId, syncStatus, isAuthLoading, onDataSynced]);
+    }, [localData, isOnline, user, ownerId, syncStatus, onDataSynced, onSyncStatusChange]);
 
     return { manualSync, fetchAndRefresh: manualSync };
 };
