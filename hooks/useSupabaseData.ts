@@ -38,6 +38,7 @@ const validateAndFixData = (loadedData: any): AppData => {
         return isNaN(date.getTime()) ? new Date() : date;
     };
 
+    // وظيفة لتنظيف الكائنات من الـ user_id القديم لضمان عدم حدوث تعارض RLS عند الاستيراد
     const sanitize = (item: any) => {
         if (!item || typeof item !== 'object') return item;
         const { user_id, ...rest } = item;
@@ -110,7 +111,7 @@ const validateAndFixData = (loadedData: any): AppData => {
         })),
         profiles: (loadedData.profiles || []),
         siteFinances: (loadedData.siteFinances || []).map((sf: any) => ({
-            ...sf,
+            ...sanitize(sf),
             payment_date: sf.payment_date ? reviveDate(sf.payment_date) : new Date(),
             updated_at: sf.updated_at ? reviveDate(sf.updated_at) : undefined
         })),
@@ -132,30 +133,50 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     const isOnline = useOnlineStatus();
 
     React.useEffect(() => {
-        if (!user) { setData(getInitialData()); setEffectiveUserId(null); setActiveProfile(null); return; }
+        if (!user) {
+            setData(getInitialData());
+            setEffectiveUserId(null);
+            setActiveProfile(null);
+            setIsDataLoading(false);
+            return;
+        }
 
         const resolveIdentity = async () => {
             setIsDataLoading(true);
             let ownerId = user.id;
+
             try {
                 if (isOnline) {
                     const supabase = getSupabaseClient();
                     if (supabase) {
-                        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-                        if (profile) { 
-                            setActiveProfile(profile); 
-                            if (profile.lawyer_id) ownerId = profile.lawyer_id; 
+                        const { data: profile, error } = await supabase
+                            .from('profiles')
+                            .select('*')
+                            .eq('id', user.id)
+                            .maybeSingle();
+                        
+                        if (profile) {
+                            setActiveProfile(profile);
+                            if (profile.lawyer_id) {
+                                ownerId = profile.lawyer_id;
+                            }
                         }
                     }
                 }
-            } catch (err) { console.warn("Identity check failed:", err); } finally {
+            } catch (err) {
+                console.warn("Identity check failed:", err);
+            } finally {
                 setEffectiveUserId(ownerId);
                 const db = await getDb();
                 const stored = await db.get(DATA_STORE_NAME, ownerId);
-                if (stored) setData(validateAndFixData(stored));
+                
+                if (stored) {
+                    setData(validateAndFixData(stored));
+                }
                 setIsDataLoading(false);
             }
         };
+
         resolveIdentity();
     }, [user?.id, isOnline]);
 
@@ -166,7 +187,7 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         return { ...defaultPermissions, ...(myProfile?.permissions || {}) };
     }, [user?.id, effectiveUserId, data.profiles, activeProfile]);
 
-    const updateData = React.useCallback(async (updater: React.SetStateAction<AppData>) => {
+    const updateData = React.useCallback((updater: React.SetStateAction<AppData>) => {
         if (!effectiveUserId) return;
         setIsDirty(true);
         setData(curr => {
@@ -176,13 +197,12 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         });
     }, [effectiveUserId]);
 
-    const setFullData = React.useCallback(async (rawImportedData: any) => {
+    const setFullData = React.useCallback((rawImportedData: any) => {
         if (!effectiveUserId) return;
-        const validatedData = validateAndFixData(rawImportedData);
         setIsDirty(true);
+        const validatedData = validateAndFixData(rawImportedData);
         setData(validatedData);
-        const db = await getDb();
-        await db.put(DATA_STORE_NAME, validatedData, effectiveUserId);
+        getDb().then(db => db.put(DATA_STORE_NAME, validatedData, effectiveUserId));
     }, [effectiveUserId]);
 
     const handleDataSynced = React.useCallback(async (merged: AppData) => {
@@ -193,14 +213,9 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         setIsDirty(false);
     }, [effectiveUserId]);
 
-    // PREVENT RLS MISMATCH: Construct syncUser ONLY after identity is resolved.
-    const syncUser = React.useMemo(() => {
-        if (!user || isDataLoading || !effectiveUserId) return null;
-        return { ...user, id: effectiveUserId } as User;
-    }, [user, effectiveUserId, isDataLoading]);
-
     const { manualSync, fetchAndRefresh } = useSync({
-        user: syncUser,
+        user: user,
+        ownerId: effectiveUserId,
         localData: data,
         deletedIds: getInitialDeletedIds(),
         onDataSynced: handleDataSynced,
@@ -208,6 +223,25 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
         onSyncStatusChange: (s, e) => { setSyncStatus(s); setLastSyncError(e); },
         isOnline, isAuthLoading, syncStatus, getDocumentFile: async () => null
     });
+
+    const allSessions = React.useMemo(() => {
+        return data.clients.flatMap(c => 
+            c.cases.flatMap(cs => 
+                cs.stages.flatMap(st => 
+                    st.sessions.map(s => ({
+                        ...s, 
+                        stageId: st.id, 
+                        stageDecisionDate: st.decisionDate,
+                        user_id: (s as any).user_id || (st as any).user_id
+                    }))
+                )
+            )
+        );
+    }, [data.clients]);
+
+    const unpostponedSessions = React.useMemo(() => {
+        return allSessions.filter(s => isBeforeToday(s.date) && !s.isPostponed && !s.stageDecisionDate);
+    }, [allSessions]);
 
     const postponeSession = React.useCallback((sessionId: string, newDate: Date, newReason: string) => {
         updateData(prev => ({
@@ -221,12 +255,33 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
                     stages: caseItem.stages.map(stage => {
                         const sessionIdx = stage.sessions.findIndex(s => s.id === sessionId);
                         if (sessionIdx === -1) return stage;
+
                         const oldSession = stage.sessions[sessionIdx];
-                        const updatedOldSession: Session = { ...oldSession, isPostponed: true, nextSessionDate: newDate, nextPostponementReason: newReason, updated_at: new Date() };
-                        const newSession: Session = { id: `session-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, court: oldSession.court, caseNumber: oldSession.caseNumber, date: newDate, clientName: oldSession.clientName, opponentName: oldSession.opponentName, isPostponed: false, postponementReason: newReason, assignee: oldSession.assignee, updated_at: new Date() };
+                        const updatedOldSession: Session = {
+                            ...oldSession,
+                            isPostponed: true,
+                            nextSessionDate: newDate,
+                            nextPostponementReason: newReason,
+                            updated_at: new Date(),
+                        };
+
+                        const newSession: Session = {
+                            id: `session-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                            court: oldSession.court,
+                            caseNumber: oldSession.caseNumber,
+                            date: newDate,
+                            clientName: oldSession.clientName,
+                            opponentName: oldSession.opponentName,
+                            isPostponed: false,
+                            postponementReason: newReason,
+                            assignee: oldSession.assignee,
+                            updated_at: new Date(),
+                        };
+
                         const newSessionsList = [...stage.sessions];
                         newSessionsList[sessionIdx] = updatedOldSession;
                         newSessionsList.push(newSession);
+
                         return { ...stage, sessions: newSessionsList, updated_at: new Date() };
                     })
                 }))
@@ -235,30 +290,15 @@ export const useSupabaseData = (user: User | null, isAuthLoading: boolean) => {
     }, [updateData]);
 
     const deleteItem = (key: keyof AppData, id: string) => {
-        updateData(prev => ({ ...prev, [key]: (prev[key] as any[]).filter((i: any) => i.id !== id) }));
+        updateData(prev => ({
+            ...prev,
+            [key]: (prev[key] as any[]).filter((i: any) => i.id !== id)
+        }));
     };
 
-    const allSessions = React.useMemo(() => {
-        return (data.clients || []).flatMap(c => 
-            (c.cases || []).flatMap(cs => 
-                (cs.stages || []).flatMap(st => 
-                    (st.sessions || []).map(s => ({
-                        ...s, 
-                        stageId: st.id, 
-                        stageDecisionDate: st.decisionDate,
-                        user_id: (s as any).user_id || c.user_id
-                    }))
-                )
-            )
-        );
-    }, [data.clients]);
-
-    const unpostponedSessions = React.useMemo(() => {
-        return allSessions.filter(s => isBeforeToday(s.date) && !s.isPostponed && !s.stageDecisionDate);
-    }, [allSessions]);
-
     return {
-        ...data, syncStatus, manualSync, isDataLoading, fetchAndRefresh,
+        ...data,
+        syncStatus, manualSync, isDataLoading, fetchAndRefresh,
         effectiveUserId, activeProfile, permissions, isDirty,
         allSessions, unpostponedSessions,
         showUnpostponedSessionsModal, setShowUnpostponedSessionsModal,

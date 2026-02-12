@@ -1,13 +1,14 @@
 
 import * as React from 'react';
 import type { User } from '@supabase/supabase-js';
-import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, transformRemoteToLocal } from './useOnlineData';
-import { Client, Case, Stage, Session, AppData, DeletedIds, getInitialDeletedIds } from '../types';
+import { checkSupabaseSchema, fetchDataFromSupabase, upsertDataToSupabase, FlatData, transformRemoteToLocal, fetchDeletionsFromSupabase } from './useOnlineData';
+import { Client, Case, Stage, Session, CaseDocument, AppData, DeletedIds, getInitialDeletedIds, SyncDeletion } from '../types';
 
 export type SyncStatus = 'loading' | 'syncing' | 'synced' | 'error' | 'unconfigured' | 'uninitialized';
 
 interface UseSyncProps {
     user: User | null;
+    ownerId: string | null;
     localData: AppData;
     deletedIds: DeletedIds;
     onDataSynced: (mergedData: AppData) => Promise<void> | void;
@@ -21,8 +22,8 @@ interface UseSyncProps {
 
 const flattenData = (data: AppData): FlatData => {
     const cases = (data.clients || []).flatMap(c => (c.cases || []).map(cs => ({ ...cs, client_id: c.id })));
-    const stages = (cases || []).flatMap(cs => (cs.stages || []).map(st => ({ ...st, case_id: cs.id })));
-    const sessions = (stages || []).flatMap(st => (st.sessions || []).map(s => ({ ...s, stage_id: st.id })));
+    const stages = cases.flatMap(cs => (cs.stages || []).map(st => ({ ...st, case_id: cs.id })));
+    const sessions = stages.flatMap(st => (st.sessions || []).map(s => ({ ...s, stage_id: st.id })));
     return {
         clients: (data.clients || []).map(({ cases, ...client }) => client),
         cases, stages, sessions,
@@ -44,7 +45,7 @@ const constructData = (flatData: Partial<FlatData>): AppData => {
         const stageId = (s as any).stage_id || (s as any).stageId;
         if (stageId) {
             if (!sessionMap.has(stageId)) sessionMap.set(stageId, []);
-            sessionMap.get(stageId)!.push({ ...s, date: new Date(s.date), nextSessionDate: s.nextSessionDate ? new Date(s.nextSessionDate) : undefined } as Session);
+            sessionMap.get(stageId)!.push(s as Session);
         }
     });
 
@@ -70,45 +71,35 @@ const constructData = (flatData: Partial<FlatData>): AppData => {
 
     return {
         clients: (flatData.clients || []).map(c => ({ ...c, cases: caseMap.get(c.id) || [] } as Client)),
-        adminTasks: (flatData.admin_tasks || []).map(t => ({ ...t, dueDate: new Date(t.dueDate) })),
-        appointments: (flatData.appointments || []).map(a => ({ ...a, date: new Date(a.date) })),
-        accountingEntries: (flatData.accounting_entries || []).map(e => ({ ...e, date: new Date(e.date) })),
+        adminTasks: (flatData.admin_tasks || []) as any,
+        appointments: (flatData.appointments || []) as any,
+        accountingEntries: (flatData.accounting_entries || []) as any,
         assistants: (flatData.assistants || []).map(a => a.name),
-        invoices: (flatData.invoices || []).map(inv => ({...inv, issueDate: new Date(inv.issueDate), dueDate: new Date(inv.dueDate), items: (flatData.invoice_items || []).filter(i => (i as any).invoice_id === inv.id)})) as any,
-        documents: (flatData.case_documents || []).map(d => ({ ...d, addedAt: new Date(d.addedAt) })),
+        invoices: (flatData.invoices || []).map(inv => ({...inv, items: (flatData.invoice_items || []).filter(i => (i as any).invoice_id === inv.id)})) as any,
+        documents: (flatData.case_documents || []) as any,
         profiles: (flatData.profiles || []) as any,
         siteFinances: (flatData.site_finances || []) as any,
         ignoredDocumentIds: [],
     };
 };
 
-export const useSync = ({ user, localData, onDataSynced, onSyncStatusChange, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
-    // استخدام Ref لضمان أن دالة manualSync تستخدم دائماً أحدث نسخة من البيانات المحلية
-    // هذا يمنع مشكلة "الإغلاق القديم" (Stale Closure) التي كانت تحدث عند استدعاء المزامنة فور الاستيراد
-    const localDataRef = React.useRef(localData);
-    React.useEffect(() => {
-        localDataRef.current = localData;
-    }, [localData]);
-
+export const useSync = ({ user, ownerId, localData, onDataSynced, onSyncStatusChange, isOnline, isAuthLoading, syncStatus }: UseSyncProps) => {
     const setStatus = (status: SyncStatus, error: string | null = null) => { onSyncStatusChange(status, error); };
 
     const manualSync = React.useCallback(async () => {
-        if (syncStatus === 'syncing' || isAuthLoading || !isOnline || !user) return;
-        setStatus('syncing', 'جاري المزامنة...');
+        if (syncStatus === 'syncing' || isAuthLoading || !isOnline || !user || !ownerId) return;
         
+        setStatus('syncing', 'جاري المزامنة...');
         try {
             const schemaCheck = await checkSupabaseSchema();
             if (!schemaCheck.success) { setStatus('uninitialized', schemaCheck.message); return; }
 
-            // 1. جلب البيانات من السحابة
+            // 1. جلب البيانات السحابية (Pull)
             const remoteDataRaw = await fetchDataFromSupabase();
             const remoteFlatData = transformRemoteToLocal(remoteDataRaw);
-            
-            // 2. تحويل أحدث بيانات محلية (بما فيها المستوردة مؤخراً)
-            const currentLocalData = localDataRef.current;
-            const localFlatData = flattenData(currentLocalData);
+            const localFlatData = flattenData(localData);
 
-            // 3. الدمج مع إعطاء الأولوية القصوى للمحلي
+            // 2. دمج البيانات (الدمج يفضل البيانات الأحدث بناءً على الطوابع الزمنية إن وجدت، أو يدمج المفقود)
             const mergedFlatData: Partial<FlatData> = {};
             const keys: (keyof FlatData)[] = ['clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'assistants', 'invoices', 'invoice_items', 'case_documents', 'profiles', 'site_finances'];
 
@@ -117,20 +108,32 @@ export const useSync = ({ user, localData, onDataSynced, onSyncStatusChange, isO
                 const localItems = (localFlatData as any)[key] || [];
                 const finalMap = new Map();
                 
-                // نبدأ بالسحابة
+                // إضافة السحابي أولاً
                 remoteItems.forEach((i: any) => finalMap.set(i.id ?? i.name, i));
                 
-                // المحلي يطغى على السحابة (ضروري لرفع النسخة الاحتياطية)
-                // إذا وجد نفس الـ ID في النسخة الاحتياطية، سيستبدل النسخة الموجودة في السحابة
-                localItems.forEach((i: any) => finalMap.set(i.id ?? i.name, i));
+                // دمج المحلي: إذا كان العنصر موجوداً سحابياً، ندمجه بحرص. إذا كان جديداً محلياً، نضيفه.
+                localItems.forEach((i: any) => {
+                    const id = i.id ?? i.name;
+                    const existing = finalMap.get(id);
+                    if (!existing) {
+                        finalMap.set(id, i);
+                    } else {
+                        // هنا نفضل النسخة الأحدث بناءً على updated_at
+                        const remoteDate = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
+                        const localDate = i.updated_at ? new Date(i.updated_at).getTime() : 0;
+                        if (localDate > remoteDate) {
+                            finalMap.set(id, i);
+                        }
+                    }
+                });
                 
                 (mergedFlatData as any)[key] = Array.from(finalMap.values());
             }
 
-            // 4. رفع النتيجة المدمجة للسحابة (أمر Upsert سيقوم بالتحديث أو الإضافة)
-            await upsertDataToSupabase(mergedFlatData, user);
+            // 3. رفع النتيجة المدمجة للسحابة (Push)
+            await upsertDataToSupabase(mergedFlatData, ownerId);
 
-            // 5. تحديث الحالة المحلية بالبيانات الموحدة والنهائية
+            // 4. تحديث الحالة المحلية
             const finalMergedData = constructData(mergedFlatData);
             await onDataSynced(finalMergedData);
             
@@ -139,7 +142,7 @@ export const useSync = ({ user, localData, onDataSynced, onSyncStatusChange, isO
             console.error("Sync Error:", err);
             setStatus('error', err.message || 'حدث خطأ أثناء المزامنة');
         }
-    }, [isOnline, user, syncStatus, isAuthLoading, onDataSynced]); // أزلنا localData من التبعيات لضمان استقرار الدالة واستخدام Ref بدلاً منها
+    }, [localData, isOnline, user, ownerId, syncStatus, isAuthLoading, onDataSynced]);
 
     return { manualSync, fetchAndRefresh: manualSync };
 };

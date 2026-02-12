@@ -17,7 +17,7 @@ import SubscriptionExpiredPage from './pages/SubscriptionExpiredPage';
 
 import ConfigurationModal from './components/ConfigurationModal';
 import { useSupabaseData, SyncStatus } from './hooks/useSupabaseData';
-import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, PrintIcon, ShareIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationCircleIcon, ArrowPathIcon, SparklesIcon } from './components/icons';
+import { UserIcon, CalculatorIcon, Cog6ToothIcon, NoSymbolIcon, PowerIcon, PrintIcon, ShareIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ExclamationCircleIcon, ArrowPathIcon } from './components/icons';
 import ContextMenu, { MenuItem } from './components/ContextMenu';
 import AdminTaskModal from './components/AdminTaskModal';
 import { AdminTask, Profile, Client, Appointment, AccountingEntry, Invoice, CaseDocument, AppData, SiteFinancialEntry, Permissions } from './types';
@@ -30,7 +30,6 @@ import PrintableReport from './components/PrintableReport';
 import { printElement } from './utils/printUtils';
 import { formatDate, isSameDay } from './utils/dateUtils';
 import SyncStatusIndicator from './components/SyncStatusIndicator';
-import LegalAI from './components/LegalAI';
 
 
 type Page = 'home' | 'admin-tasks' | 'clients' | 'accounting' | 'settings';
@@ -241,7 +240,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     const [initialAdminTaskData, setInitialAdminTaskData] = React.useState<any>(null);
     const [contextMenu, setContextMenu] = React.useState<{ isOpen: boolean; position: { x: number; y: number }; menuItems: MenuItem[] }>({ isOpen: false, position: { x: 0, y: 0 }, menuItems: [] });
     const [initialInvoiceData, setInitialInvoiceData] = React.useState<{ clientId: string; caseId?: string } | undefined>();
-    const [isLegalAIOpen, setIsLegalAIOpen] = React.useState(false);
     
     // State lifted from HomePage for printing
     const [isPrintModalOpen, setIsPrintModalOpen] = React.useState(false);
@@ -257,9 +255,27 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
     const supabase = getSupabaseClient();
     const isOnline = useOnlineStatus();
 
+    const handleLogout = async () => {
+        try {
+            localStorage.removeItem(LAST_USER_CACHE_KEY);
+            localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
+            Object.keys(localStorage).forEach(key => {
+                if (key.startsWith('sb-')) localStorage.removeItem(key);
+            });
+            setSession(null);
+            if (supabase) await supabase.auth.signOut();
+        } catch (error) {
+            console.warn("Logout network failed, state cleared anyway:", error);
+        } finally {
+            onRefresh();
+        }
+    };
+
     // This effect handles authentication state changes and initial verification.
     React.useEffect(() => {
-        const { data: { subscription } } = supabase!.auth.onAuthStateChange((event, newSession) => {
+        if (!supabase) return;
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
             if (event === 'SIGNED_OUT') {
                 setSession(null);
                 setIsAuthLoading(false);
@@ -286,24 +302,21 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
              // 2. If ONLINE, attempt to verify with Supabase.
              try {
-                const { data: { session: serverSession }, error } = await supabase!.auth.getSession();
+                const { data: { session: serverSession }, error } = await supabase.auth.getSession();
                 
                 if (error) {
                     const errorMessage = error.message.toLowerCase();
-                    if (errorMessage.includes("refresh token") || errorMessage.includes("not found")) {
-                        localStorage.removeItem(LAST_USER_CACHE_KEY);
-                        localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
-                        await supabase!.auth.signOut().catch(() => {}); 
-                        setSession(null);
-                        onRefresh(); 
+                    // JWT Expired or Refresh Token failure means we need to re-login
+                    if (errorMessage.includes("refresh token") || errorMessage.includes("not found") || errorMessage.includes("jwt expired")) {
+                        await handleLogout();
                     }
                 } else if (serverSession) {
                     setSession(serverSession);
                     localStorage.setItem(LAST_USER_CACHE_KEY, JSON.stringify(serverSession.user));
                 } else {
+                    // No server session but we had an optimistic one? User might have been logged out on another device or token invalid.
                     if (session) {
-                         setSession(null);
-                         localStorage.removeItem(LAST_USER_CACHE_KEY);
+                         await handleLogout();
                     }
                 }
              } catch (err) {
@@ -341,22 +354,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
-    
-    const handleLogout = async () => {
-        try {
-            localStorage.removeItem(LAST_USER_CACHE_KEY);
-            localStorage.removeItem(LAST_USER_CREDENTIALS_CACHE_KEY);
-            Object.keys(localStorage).forEach(key => {
-                if (key.startsWith('sb-')) localStorage.removeItem(key);
-            });
-            setSession(null);
-            await supabase!.auth.signOut();
-        } catch (error) {
-            console.warn("Logout network failed, state cleared anyway:", error);
-        } finally {
-            onRefresh();
-        }
-    };
     
     const handleNavigation = (page: Page) => {
         setCurrentPage(page);
@@ -640,7 +637,7 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
 
     return (
         <DataProvider value={data}>
-            <div className="flex flex-col h-screen bg-gray-50 relative">
+            <div className="flex flex-col h-screen bg-gray-50">
                 <Navbar
                     currentPage={currentPage}
                     onNavigate={handleNavigation}
@@ -660,18 +657,6 @@ const App: React.FC<AppProps> = ({ onRefresh }) => {
                     {renderPage()}
                 </main>
                 <MobileNavbar currentPage={currentPage} onNavigate={handleNavigation} permissions={data.permissions} />
-                
-                {/* Floating AI Button */}
-                <button 
-                    onClick={() => setIsLegalAIOpen(true)}
-                    className="fixed bottom-24 right-6 sm:bottom-10 sm:right-10 w-14 h-14 bg-gradient-to-tr from-blue-600 to-indigo-600 text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-transform z-40 group no-print"
-                    title="المساعد القانوني الذكي"
-                >
-                    <SparklesIcon className="w-7 h-7 text-yellow-300 group-hover:animate-pulse fill-current" />
-                </button>
-
-                <LegalAI isOpen={isLegalAIOpen} onClose={() => setIsLegalAIOpen(false)} />
-
                 <AdminTaskModal isOpen={isAdminTaskModalOpen} onClose={() => setIsAdminTaskModalOpen(false)} onSubmit={handleSaveAdminTask} assistants={data.assistants} />
                 <ContextMenu isOpen={contextMenu.isOpen} position={contextMenu.position} menuItems={contextMenu.menuItems} onClose={closeContextMenu} />
                 <UnpostponedSessionsModal isOpen={data.showUnpostponedSessionsModal} onClose={() => data.setShowUnpostponedSessionsModal(false)} sessions={data.unpostponedSessions} onPostpone={data.postponeSession} assistants={data.assistants} />
