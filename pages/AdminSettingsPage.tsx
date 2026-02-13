@@ -4,6 +4,7 @@ import { useLocalStorage } from '../hooks/useLocalStorage';
 import { MusicalNoteIcon, PlayCircleIcon, TrashIcon, ArrowUpTrayIcon, ServerIcon, CloudArrowDownIcon, CloudArrowUpIcon, ExclamationTriangleIcon, CheckCircleIcon, ArrowPathIcon } from '../components/icons';
 import { defaultUserApprovalSoundBase64 } from '../components/RealtimeNotifier';
 import { useData } from '../context/DataContext';
+import BackupRestoreWizard from '../components/BackupRestoreWizard';
 
 const USER_APPROVAL_SOUND_KEY = 'customUserApprovalSound';
 
@@ -12,10 +13,11 @@ interface AdminSettingsPageProps {
 }
 
 const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) => {
-    const { backupCloudData, restoreCloudData } = useData();
+    const { backupCloudData } = useData();
     const [customSound, setCustomSound] = useLocalStorage<string | null>(USER_APPROVAL_SOUND_KEY, null);
     const [feedback, setFeedback] = React.useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [isProcessing, setIsProcessing] = React.useState(false);
+    const [isWizardOpen, setIsWizardOpen] = React.useState(false);
 
     const showFeedback = (message: string, type: 'success' | 'error') => {
         setFeedback({ message, type });
@@ -37,35 +39,15 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
             setCustomSound(base64);
             showFeedback('تم حفظ صوت التنبيه الجديد بنجاح.', 'success');
         };
-        reader.onerror = () => {
-            showFeedback('فشل في قراءة الملف.', 'error');
-        };
         reader.readAsDataURL(file);
     };
 
     const playSound = () => {
         const soundSource = customSound || defaultUserApprovalSoundBase64;
-        
-        if (!soundSource) {
-             showFeedback('الملف الصوتي المعتمد للتنبيه غير موجود. الرجاء اختيار نغمة جديدة.', 'error');
-             return;
-        }
-
-        try {
+        if (soundSource) {
             const audio = new Audio(soundSource);
-            audio.play().catch(e => {
-                console.error("Audio preview playback failed:", e);
-                showFeedback('فشل تشغيل الملف الصوتي. قد يكون الملف تالفاً أو غير مدعوم. الرجاء اختيار نغمة تنبيه جديدة.', 'error');
-            });
-        } catch (e) {
-            console.error("Error creating Audio object for preview:", e);
-            showFeedback('حدث خطأ في تهيئة الصوت. الرجاء إعادة تحميل الصفحة أو اختيار نغمة جديدة.', 'error');
+            audio.play().catch(e => showFeedback('فشل تشغيل الصوت.', 'error'));
         }
-    };
-
-    const resetSound = () => {
-        setCustomSound(null);
-        showFeedback('تمت استعادة الصوت الافتراضي.', 'success');
     };
 
     const handleCloudBackup = async () => {
@@ -80,79 +62,52 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
         }
     };
 
-    const handleCloudRestore = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
-        if (!window.confirm("تحذير: استعادة النسخة الاحتياطية ستقوم بتحديث كافة البيانات في قاعدة البيانات السحابية. هل أنت متأكد من المتابعة؟")) {
-            event.target.value = ''; // Reset input
-            return;
-        }
-
-        setIsProcessing(true);
-        try {
-            await restoreCloudData(file);
-            showFeedback('تمت استعادة البيانات بنجاح.', 'success');
-        } catch (e: any) {
-            showFeedback(`فشل الاستعادة: ${e.message}`, 'error');
-        } finally {
-            setIsProcessing(false);
-            event.target.value = ''; // Reset input
-        }
-    };
-
     return (
         <div className="space-y-8">
-            <h1 className="text-3xl font-bold text-gray-800">إعدادات المدير</h1>
+            <h1 className="text-3xl font-bold text-gray-800">إعدادات النظام</h1>
 
             {feedback && (
-                <div className={`p-4 rounded-lg flex items-center gap-3 ${feedback.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                    <span>{feedback.message}</span>
+                <div className={`p-4 rounded-lg flex items-center gap-3 animate-fade-in ${feedback.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {feedback.type === 'success' ? <CheckCircleIcon className="w-5 h-5"/> : <ExclamationTriangleIcon className="w-5 h-5"/>}
+                    <span className="font-bold">{feedback.message}</span>
                 </div>
             )}
             
             <div className="bg-white p-6 rounded-lg shadow space-y-6">
                 <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-3">
-                    <CloudArrowDownIcon className="w-6 h-6 text-blue-600" />
-                    <span>النسخ الاحتياطي والاستعادة السحابية</span>
+                    <CloudArrowUpIcon className="w-6 h-6 text-blue-600" />
+                    <span>أدوات النسخ الاحتياطي والاستعادة</span>
                 </h2>
-                <div className="p-4 bg-gray-50 border rounded-lg">
-                    <h3 className="font-semibold text-lg text-gray-800">نسخة كاملة من قاعدة البيانات</h3>
-                    <p className="text-sm text-gray-600 mt-1 mb-4">
-                        يمكنك تنزيل نسخة كاملة عن كافة البيانات الموجودة في قاعدة البيانات السحابية بصيغة JSON، أو استعادة نسخة سابقة.
-                        <br />
-                        <span className="text-red-600 font-bold flex items-center gap-1 mt-1">
-                            <ExclamationTriangleIcon className="w-4 h-4" />
-                            تحذير: عملية الاستعادة ستقوم بتحديث البيانات الموجودة في السحابة.
-                        </span>
-                    </p>
-                    <div className="flex flex-wrap gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="p-4 bg-gray-50 border rounded-xl hover:bg-gray-100 transition-colors">
+                        <h3 className="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <CloudArrowDownIcon className="w-5 h-5 text-green-600" />
+                            تنزيل نسخة شاملة
+                        </h3>
+                        <p className="text-sm text-gray-600 mb-4">تنزيل كافة بيانات المستخدمين والملفات المحاسبية والوثائق من السحابة في ملف JSON واحد.</p>
                         <button 
                             onClick={handleCloudBackup}
                             disabled={isProcessing}
-                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all"
                         >
                             {isProcessing ? <ArrowPathIcon className="w-5 h-5 animate-spin" /> : <CloudArrowDownIcon className="w-5 h-5" />}
-                            <span>تنزيل نسخة احتياطية (Download Backup)</span>
+                            <span>بدء تنزيل النسخة (Full JSON)</span>
                         </button>
+                    </div>
 
-                        <div className="relative">
-                            <input
-                                type="file"
-                                id="restore-upload"
-                                accept=".json"
-                                className="hidden"
-                                onChange={handleCloudRestore}
-                                disabled={isProcessing}
-                            />
-                            <label
-                                htmlFor="restore-upload"
-                                className={`flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors cursor-pointer ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            >
-                                {isProcessing ? <ArrowPathIcon className="w-5 h-5 animate-spin" /> : <CloudArrowUpIcon className="w-5 h-5" />}
-                                <span>استعادة نسخة احتياطية (Restore Backup)</span>
-                            </label>
-                        </div>
+                    <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl hover:bg-blue-100 transition-colors">
+                        <h3 className="font-bold text-blue-900 mb-2 flex items-center gap-2">
+                            <CloudArrowUpIcon className="w-5 h-5 text-blue-600" />
+                            معالج الاستعادة السحابية
+                        </h3>
+                        <p className="text-sm text-blue-800 mb-4">رفع ملف نسخة احتياطية (JSON) إلى السحابة مع معالجة الأخطاء خطوة بخطوة لكل جدول.</p>
+                        <button 
+                            onClick={() => setIsWizardOpen(true)}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-md transition-all"
+                        >
+                            <CloudArrowUpIcon className="w-5 h-5" />
+                            <span>فتح معالج الرفع السحابي</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -160,74 +115,54 @@ const AdminSettingsPage: React.FC<AdminSettingsPageProps> = ({ onOpenConfig }) =
             <div className="bg-white p-6 rounded-lg shadow space-y-6">
                 <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-3">
                     <ServerIcon className="w-6 h-6 text-blue-600" />
-                    <span>تكوين النظام</span>
+                    <span>تكوين السيرفر (SQL Editor)</span>
                 </h2>
                 <div className="p-4 bg-gray-50 border rounded-lg">
-                    <h3 className="font-semibold text-lg text-gray-800">معالج إعداد قاعدة البيانات</h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                        استخدم هذه الأداة لإعداد جداول قاعدة البيانات، وتكوين صلاحيات التخزين، وإصلاح مشاكل المزامنة. يجب استخدام هذه الأداة بحذر.
+                    <h3 className="font-semibold text-lg text-gray-800">إصلاح قواعد البيانات والسياسات</h3>
+                    <p className="text-sm text-gray-600 mt-1 mb-4">
+                        إذا واجهت أخطاء "Permission Denied" أثناء الاستعادة، يرجى تشغيل سكربت الترقية v5.2 من معالج الإعداد.
                     </p>
-                    <div className="mt-4">
-                        <button 
-                            onClick={onOpenConfig}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-                        >
-                            <ServerIcon className="w-5 h-5" />
-                            <span>فتح معالج الإعداد</span>
-                        </button>
-                    </div>
+                    <button 
+                        onClick={onOpenConfig}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white font-semibold rounded-lg hover:bg-gray-800 transition-colors"
+                    >
+                        <ServerIcon className="w-5 h-5" />
+                        <span>فتح معالج تهيئة SQL v5.2</span>
+                    </button>
                 </div>
             </div>
 
             <div className="bg-white p-6 rounded-lg shadow space-y-6">
                 <h2 className="text-xl font-bold text-gray-800 border-b pb-3 flex items-center gap-3">
                     <MusicalNoteIcon className="w-6 h-6 text-blue-600" />
-                    <span>تخصيص صوت التنبيهات</span>
+                    <span>تخصيص نغمة التنبيهات</span>
                 </h2>
 
                 <div className="p-4 bg-gray-50 border rounded-lg">
-                    <h3 className="font-semibold text-lg text-gray-800">صوت تنبيه تسجيل مستخدم جديد</h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                        اختر ملفًا صوتيًا (مثل MP3, WAV) ليتم تشغيله عند تسجيل مستخدم جديد في انتظار الموافقة.
-                    </p>
+                    <h3 className="font-semibold text-lg text-gray-800">صوت تنبيه طلبات الانضمام</h3>
+                    <p className="text-sm text-gray-600 mt-1 mb-4">يتم تشغيل هذا الصوت عند تسجيل محامي أو مساعد جديد بانتظار موافقتك.</p>
 
-                    <div className="mt-4 flex flex-col sm:flex-row items-center gap-4">
-                        <input
-                            type="file"
-                            id="sound-upload"
-                            accept="audio/*"
-                            className="hidden"
-                            onChange={handleFileChange}
-                        />
-                        <label
-                            htmlFor="sound-upload"
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors cursor-pointer"
-                        >
+                    <div className="flex flex-wrap gap-4 items-center">
+                        <input type="file" id="sound-upload" accept="audio/*" className="hidden" onChange={handleFileChange} />
+                        <label htmlFor="sound-upload" className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 cursor-pointer transition-all">
                             <ArrowUpTrayIcon className="w-5 h-5" />
-                            <span>اختر ملفًا صوتيًا...</span>
+                            <span>تغيير النغمة</span>
                         </label>
-
-                        
-                        <button
-                            onClick={playSound}
-                            className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition-colors"
-                        >
+                        <button onClick={playSound} className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600">
                             <PlayCircleIcon className="w-5 h-5" />
-                            <span>تشغيل الصوت الحالي</span>
+                            <span>تجربة الصوت</span>
                         </button>
                         {customSound && (
-                            <button
-                                onClick={resetSound}
-                                className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition-colors"
-                            >
-                                <TrashIcon className="w-5 h-5" />
-                                <span>استعادة الافتراضي</span>
+                            <button onClick={() => { setCustomSound(null); showFeedback('تمت العودة للصوت الافتراضي.', 'success'); }} className="p-2 text-red-500 hover:bg-red-50 rounded-full">
+                                <TrashIcon className="w-6 h-6" />
                             </button>
                         )}
                     </div>
-                     {customSound ? <p className="text-xs text-gray-500 mt-2">تم تعيين صوت مخصص.</p> : <p className="text-xs text-gray-500 mt-2">يتم استخدام الصوت الافتراضي حالياً.</p>}
                 </div>
             </div>
+
+            {/* Wizard Modal */}
+            {isWizardOpen && <BackupRestoreWizard onClose={() => setIsWizardOpen(false)} />}
         </div>
     );
 };

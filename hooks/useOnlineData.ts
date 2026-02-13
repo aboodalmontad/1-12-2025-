@@ -19,113 +19,204 @@ export type FlatData = {
     site_finances: SiteFinancialEntry[];
 };
 
+const SYNC_TIMEOUT_MS = 30000;
+
+const withTimeout = <T>(promise: Promise<T> | any, timeoutMs: number, errorMessage: string): Promise<T> => {
+    return Promise.race([
+        promise,
+        new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
+        )
+    ]);
+};
+
 const ensureValidSession = async () => {
     const supabase = getSupabaseClient();
-    if (!supabase) throw new Error('Supabase client is not configured.');
-    const { data: { session }, error } = await supabase.auth.getSession();
-    if (error || !session) {
-        console.error("Session check failed:", error);
-        throw new Error('انتهت صلاحية الجلسة (JWT expired). يرجى إعادة تسجيل الدخول.');
+    if (!supabase) throw new Error('سيرفر المزامنة غير مهيأ.');
+    
+    try {
+        const { data: { session }, error } = await withTimeout(
+            supabase.auth.getSession(), 
+            10000, 
+            'انتهت مهلة الاتصال بالسيرفر. تحقق من الإنترنت.'
+        ) as any;
+
+        if (error) throw error;
+        if (!session) throw new Error('يجب تسجيل الدخول للمزامنة.');
+        return session.user;
+    } catch (e: any) {
+        if (e.message.includes('JWT')) throw new Error('انتهت صلاحية الجلسة، يرجى إعادة تسجيل الدخول.');
+        throw e;
     }
-    return session.user;
 };
 
 export const checkSupabaseSchema = async () => {
     const supabase = getSupabaseClient();
-    if (!supabase) return { success: false, error: 'unconfigured', message: 'Supabase client is not configured.' };
+    if (!supabase) return { success: false, error: 'unconfigured', message: 'Supabase is not configured.' };
     try { await ensureValidSession(); } catch (err: any) { return { success: false, error: 'auth_error', message: err.message }; }
 
-    const tableChecks: { [key: string]: string } = {
-        'profiles': 'id', 'clients': 'id', 'cases': 'id', 'stages': 'id', 'sessions': 'id', 'admin_tasks': 'id',
-        'appointments': 'id', 'accounting_entries': 'id', 'assistants': 'name', 'invoices': 'id', 'invoice_items': 'id',
-        'case_documents': 'id', 'site_finances': 'id', 'sync_deletions': 'id',
-    };
-    
     try {
-        for (const [table, query] of Object.entries(tableChecks)) {
-            const { error } = await supabase.from(table).select(query).limit(1);
-            if (error) {
-                const code = String(error.code || '');
-                const msg = String(error.message || '').toLowerCase();
-                if (code === '42P01' || msg.includes('does not exist')) return { success: false, error: 'uninitialized', message: `الجدول ${table} غير موجود.` };
-                if (msg.includes('jwt expired')) return { success: false, error: 'auth_error', message: 'انتهت صلاحية الجلسة.' };
-            }
-        }
+        const { error } = await withTimeout(supabase.from('profiles').select('id').limit(1), 5000, 'فشل التحقق من قاعدة البيانات.') as any;
+        if (error && (error.code === '42P01')) return { success: false, error: 'uninitialized', message: 'قاعدة البيانات السحابية غير مكتملة.' };
         return { success: true, error: null, message: '' };
-    } catch (err: any) { return { success: false, error: 'unknown', message: `خطأ في فحص البيانات: ${err.message}` }; }
+    } catch (err: any) { 
+        return { success: false, error: 'unknown', message: err.message }; 
+    }
 };
 
-export const fetchDataFromSupabase = async (): Promise<Partial<FlatData>> => {
+export const fetchDataFromSupabase = async (onProgress?: (msg: string) => void): Promise<Partial<FlatData>> => {
     const supabase = getSupabaseClient();
-    if (!supabase) throw new Error('Supabase client not available.');
+    if (!supabase) throw new Error('Supabase unavailable');
     await ensureValidSession();
 
-    const fetchTable = async (table: string) => {
-        const { data, error } = await supabase.from(table).select('*');
-        if (error) {
-            if (error.code === '42501' || error.message.includes('policy')) return [];
-            throw error;
-        }
-        return data || [];
-    };
+    const keys = ['profiles', 'assistants', 'clients', 'cases', 'stages', 'sessions', 'admin_tasks', 'appointments', 'accounting_entries', 'invoices', 'invoice_items', 'case_documents', 'site_finances'];
+    const results: any = {};
 
-    const [clients, admin_tasks, appointments, accounting_entries, assistants, invoices, cases, stages, sessions, invoice_items, case_documents, profiles, site_finances] = await Promise.all([
-        fetchTable('clients'), fetchTable('admin_tasks'), fetchTable('appointments'), fetchTable('accounting_entries'), fetchTable('assistants'), fetchTable('invoices'), fetchTable('cases'), fetchTable('stages'), fetchTable('sessions'), fetchTable('invoice_items'), fetchTable('case_documents'), fetchTable('profiles'), fetchTable('site_finances')
-    ]);
-
-    return { clients, admin_tasks, appointments, accounting_entries, assistants, invoices, cases, stages, sessions, invoice_items, case_documents, profiles, site_finances };
-};
-
-export const upsertDataToSupabase = async (data: Partial<FlatData>, ownerId: string) => {
-    const supabase = getSupabaseClient();
-    if (!supabase) throw new Error('Supabase client not available.');
-    await ensureValidSession();
-
-    const mapItems = (items: any[] | undefined, mapper: (item: any) => any) => (items || []).map(mapper);
-
-    const dataToUpsert = {
-        assistants: mapItems(data.assistants, i => ({ ...i, user_id: ownerId })),
-        clients: mapItems(data.clients, ({ contactInfo, ...rest }) => ({ ...rest, user_id: ownerId, contact_info: contactInfo })),
-        cases: mapItems(data.cases, ({ clientName, opponentName, feeAgreement, ...rest }) => ({ ...rest, user_id: ownerId, client_name: clientName, opponent_name: opponentName, fee_agreement: feeAgreement })),
-        stages: mapItems(data.stages, ({ caseNumber, firstSessionDate, decisionDate, decisionNumber, decisionSummary, decisionNotes, ...rest }) => ({ ...rest, user_id: ownerId, case_number: caseNumber, first_session_date: firstSessionDate, decision_date: decisionDate, decision_number: decisionNumber, decision_summary: decisionSummary, decision_notes: decisionNotes })),
-        sessions: mapItems(data.sessions, (s: any) => ({ ...s, user_id: ownerId, stage_id: s.stage_id, case_number: s.caseNumber, client_name: s.clientName, opponent_name: s.opponentName, postponement_reason: s.postponementReason, next_postponement_reason: s.nextPostponementReason, is_postponed: s.isPostponed, next_session_date: s.nextSessionDate })),
-        invoices: mapItems(data.invoices, ({ clientId, clientName, caseId, caseSubject, issueDate, dueDate, taxRate, ...rest }) => ({ ...rest, user_id: ownerId, client_id: clientId, client_name: clientName, case_id: caseId, case_subject: caseSubject, issue_date: issueDate, due_date: dueDate, tax_rate: taxRate })),
-        invoice_items: mapItems(data.invoice_items, i => ({ ...i, user_id: ownerId })),
-        case_documents: mapItems(data.case_documents, ({ caseId, userId, addedAt, storagePath, ...rest }) => ({ ...rest, user_id: ownerId, case_id: caseId, added_at: addedAt, storage_path: storagePath })),
-        admin_tasks: mapItems(data.admin_tasks, ({ dueDate, orderIndex, ...rest }) => ({ ...rest, user_id: ownerId, due_date: dueDate, order_index: orderIndex })),
-        appointments: mapItems(data.appointments, ({ reminderTimeInMinutes, ...rest }) => ({ ...rest, user_id: ownerId, reminder_time_in_minutes: reminderTimeInMinutes })),
-        accounting_entries: mapItems(data.accounting_entries, ({ clientId, caseId, clientName, ...rest }) => ({ ...rest, user_id: ownerId, client_id: clientId, case_id: caseId, client_name: clientName })),
-        site_finances: mapItems(data.site_finances, ({ payment_date, ...rest }) => ({ ...rest, user_id: ownerId, payment_date })),
-    };
-
-    // Batching function to prevent timeouts with large data
-    const upsertInBatches = async (table: string, records: any[], options: { onConflict?: string } = {}) => {
-        if (!records.length) return;
-        const BATCH_SIZE = 200;
-        for (let i = 0; i < records.length; i += BATCH_SIZE) {
-            const batch = records.slice(i, i + BATCH_SIZE);
-            await ensureValidSession(); // Refresh session for each batch
-            const { error } = await supabase.from(table).upsert(batch, options);
+    for (const key of keys) {
+        if (onProgress) onProgress(`جاري تحميل: ${key}...`);
+        try {
+            const { data, error } = await withTimeout(
+                supabase.from(key).select('*'),
+                SYNC_TIMEOUT_MS,
+                `فشل تحميل جدول ${key}`
+            ) as any;
+            
             if (error) {
-                console.error(`Error in table ${table} batch ${i}:`, error);
-                throw new Error(`فشل رفع دفعة بيانات ${table}: ${error.message}`);
+                console.warn(`Error fetching ${key}:`, error);
+                results[key] = [];
+            } else {
+                results[key] = data || [];
+            }
+        } catch (e) {
+            console.error(`Exception fetching ${key}:`, e);
+            results[key] = [];
+        }
+    }
+
+    return results as Partial<FlatData>;
+};
+
+export const getTablesConfig = (data: Partial<FlatData>, ownerId: string) => {
+    const sanitize = (items: any[] | undefined, pickFields: (item: any) => any) => 
+        (items || []).map(item => {
+            const fields = pickFields(item);
+            const finalUserId = item.user_id || item.userId || ownerId;
+            return { 
+                ...fields, 
+                user_id: finalUserId, 
+                updated_at: item.updated_at || item.updatedAt || new Date().toISOString() 
+            };
+        });
+
+    return [
+        { 
+            table: 'profiles', 
+            label: 'ملفات المستخدمين',
+            data: (data.profiles || []).map(p => ({
+                id: p.id,
+                full_name: p.full_name,
+                mobile_number: p.mobile_number,
+                role: p.role,
+                is_approved: p.is_approved,
+                is_active: p.is_active,
+                subscription_start_date: p.subscription_start_date,
+                subscription_end_date: p.subscription_end_date,
+                lawyer_id: p.lawyer_id,
+                permissions: p.permissions,
+                mobile_verified: p.mobile_verified,
+                created_at: p.created_at
+            }))
+        },
+        { 
+            table: 'assistants', 
+            label: 'المساعدين',
+            data: sanitize(data.assistants, i => ({ name: i.name })), 
+            options: { onConflict: 'user_id,name' } 
+        },
+        { 
+            table: 'clients', 
+            label: 'الموكلين',
+            data: sanitize(data.clients, i => ({ id: i.id, name: i.name, contact_info: i.contactInfo || i.contact_info })) 
+        },
+        { 
+            table: 'cases', 
+            label: 'القضايا',
+            data: sanitize(data.cases, i => ({ id: i.id, client_id: i.client_id || i.clientId, subject: i.subject, opponent_name: i.opponentName || i.opponent_name, fee_agreement: i.feeAgreement || i.fee_agreement, status: i.status })) 
+        },
+        { 
+            table: 'stages', 
+            label: 'مراحل التقاضي',
+            data: sanitize(data.stages, i => ({ id: i.id, case_id: i.case_id || i.caseId, court: i.court, case_number: i.caseNumber || i.case_number, first_session_date: i.firstSessionDate || i.first_session_date, decision_date: i.decisionDate || i.decision_date, decision_number: i.decisionNumber || i.decision_number, decision_summary: i.decisionSummary || i.decision_summary, decision_notes: i.decisionNotes || i.decision_notes })) 
+        },
+        { 
+            table: 'sessions', 
+            label: 'الجلسات',
+            data: sanitize(data.sessions, i => ({ id: i.id, stage_id: i.stage_id || i.stageId, date: i.date, court: i.court, case_number: i.caseNumber || i.case_number, client_name: i.clientName || i.client_name, opponent_name: i.opponentName || i.opponent_name, postponement_reason: i.postponementReason || i.postponement_reason, next_session_date: i.nextSessionDate || i.next_session_date, next_postponement_reason: i.nextPostponementReason || i.next_postponement_reason, is_postponed: !!i.is_postponed || !!i.isPostponed, assignee: i.assignee })) 
+        },
+        { 
+            table: 'invoices', 
+            label: 'الفواتير',
+            data: sanitize(data.invoices, i => ({ id: i.id, client_id: i.clientId || i.client_id, client_name: i.clientName || i.client_name, case_id: i.caseId || i.case_id, case_subject: i.caseSubject || i.case_subject, issue_date: i.issueDate || i.issue_date, due_date: i.dueDate || i.due_date, tax_rate: i.taxRate || i.tax_rate, discount: i.discount, status: i.status, notes: i.notes })) 
+        },
+        { 
+            table: 'invoice_items', 
+            label: 'بنود الفواتير',
+            data: (data.invoice_items || []).map(i => ({ id: i.id, invoice_id: i.invoice_id, description: i.description, amount: i.amount })) 
+        },
+        { 
+            table: 'admin_tasks', 
+            label: 'المهام الإدارية',
+            data: sanitize(data.admin_tasks, i => ({ id: i.id, task: i.task, due_date: i.dueDate || i.due_date, completed: !!i.completed, importance: i.importance, assignee: i.assignee, location: i.location, order_index: i.orderIndex || i.order_index })) 
+        },
+        { 
+            table: 'appointments', 
+            label: 'المواعيد',
+            data: sanitize(data.appointments, i => ({ id: i.id, title: i.title, time: i.time, date: i.date, importance: i.importance, assignee: i.assignee, completed: !!i.completed, reminder_time_in_minutes: i.reminderTimeInMinutes || i.reminder_time_in_minutes, notified: !!i.notified })) 
+        },
+        { 
+            table: 'accounting_entries', 
+            label: 'القيود المحاسبية',
+            data: sanitize(data.accounting_entries, i => ({ id: i.id, type: i.type, amount: i.amount, date: i.date, description: i.description, client_id: i.clientId || i.client_id, case_id: i.caseId || i.case_id, client_name: i.clientName || i.client_name })) 
+        },
+        { 
+            table: 'case_documents', 
+            label: 'الوثائق والمستندات',
+            data: sanitize(data.case_documents, i => ({ id: i.id, case_id: i.caseId || i.case_id, name: i.name, type: i.type, size: i.size, storage_path: i.storagePath || i.storage_path, added_at: i.addedAt || i.added_at })) 
+        },
+        { 
+            table: 'site_finances', 
+            label: 'المالية العامة لمكتبك',
+            data: sanitize(data.site_finances, i => ({ id: i.id && i.id < 0 ? undefined : i.id, type: i.type, amount: i.amount, payment_date: i.payment_date || i.paymentDate, description: i.description, category: i.category, payment_method: i.payment_method || i.paymentMethod })) 
+        },
+    ];
+};
+
+export const upsertDataToSupabase = async (data: Partial<FlatData>, ownerId: string, onProgress?: (msg: string) => void) => {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase client not available.');
+    await ensureValidSession();
+    
+    const configs = getTablesConfig(data, ownerId);
+
+    for (const config of configs) {
+        if (!config.data.length) continue;
+        if (onProgress) onProgress(`جاري رفع: ${config.label}...`);
+
+        const BATCH_SIZE = 40;
+        for (let i = 0; i < config.data.length; i += BATCH_SIZE) {
+            const batch = config.data.slice(i, i + BATCH_SIZE);
+            const { error } = await withTimeout(
+                supabase.from(config.table).upsert(batch, config.options),
+                SYNC_TIMEOUT_MS,
+                `فشل رفع دفعة ${config.label}`
+            ) as any;
+            
+            if (error) {
+                console.error(`RLS or DB Error on table ${config.table}:`, error);
+                throw new Error(`فشل في جدول ${config.table}: ${error.message}. يرجى تشغيل سكربت v5.3 من الإعدادات.`);
             }
         }
-    };
-
-    // Execute in specific order to satisfy foreign keys
-    await upsertInBatches('assistants', dataToUpsert.assistants, { onConflict: 'user_id,name' });
-    await upsertInBatches('clients', dataToUpsert.clients);
-    await upsertInBatches('cases', dataToUpsert.cases);
-    await upsertInBatches('stages', dataToUpsert.stages);
-    await upsertInBatches('sessions', dataToUpsert.sessions);
-    await upsertInBatches('invoices', dataToUpsert.invoices);
-    await upsertInBatches('invoice_items', dataToUpsert.invoice_items);
-    await upsertInBatches('case_documents', dataToUpsert.case_documents);
-    await upsertInBatches('admin_tasks', dataToUpsert.admin_tasks);
-    await upsertInBatches('appointments', dataToUpsert.appointments);
-    await upsertInBatches('accounting_entries', dataToUpsert.accounting_entries);
-    await upsertInBatches('site_finances', dataToUpsert.site_finances);
+    }
     
     return true;
 };
@@ -146,6 +237,6 @@ export const transformRemoteToLocal = (remote: any): Partial<FlatData> => {
         invoice_items: remote.invoice_items,
         case_documents: mapItems(remote.case_documents, ({ user_id, case_id, added_at, storage_path, ...r }) => ({...r, userId: user_id, caseId: case_id, addedAt: added_at, storagePath: storage_path })),
         profiles: remote.profiles,
-        site_finances: remote.site_finances,
+        site_finances: mapItems(remote.site_finances, ({ payment_date, payment_method, ...r }) => ({...r, paymentDate: payment_date, paymentMethod: payment_method})),
     };
 };

@@ -161,7 +161,7 @@ const AdminPage: React.FC = () => {
         if (!editingUser) return;
         
         // Optimistic update
-        setUsers(prevUsers => prevUsers.map(u => 
+        setUsers(prevUsers => (prevUsers ?? []).map(u => 
             u.id === editingUser.id ? { ...editingUser, updated_at: new Date() } : u
         ));
 
@@ -202,7 +202,7 @@ const AdminPage: React.FC = () => {
             });
     
             if (rpcError) throw rpcError;
-            setUsers(prevUsers => prevUsers.filter(u => u.id !== userToDeleteId));
+            setUsers(prevUsers => (prevUsers ?? []).filter(u => u.id !== userToDeleteId));
             
         } catch (err: any) {
             setError("فشل حذف المستخدم: " + err.message);
@@ -214,7 +214,7 @@ const AdminPage: React.FC = () => {
     const toggleUserApproval = async (user: Profile) => {
          if (!supabase || user.role === 'admin') return;
          const updatedUser = { ...user, is_approved: !user.is_approved, updated_at: new Date() };
-         setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+         setUsers(prev => (prev ?? []).map(u => u.id === user.id ? updatedUser : u));
          
          try {
             const { error } = await supabase.from('profiles').update({ is_approved: updatedUser.is_approved }).eq('id', user.id);
@@ -229,7 +229,7 @@ const AdminPage: React.FC = () => {
     const toggleUserActiveStatus = async (user: Profile) => {
          if (!supabase || user.role === 'admin') return;
          const updatedUser = { ...user, is_active: !user.is_active, updated_at: new Date() };
-         setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+         setUsers(prev => (prev ?? []).map(u => u.id === user.id ? updatedUser : u));
          
          try {
             const { error } = await supabase.from('profiles').update({ is_active: updatedUser.is_active }).eq('id', user.id);
@@ -253,7 +253,7 @@ const AdminPage: React.FC = () => {
 
             if (code) {
                 // Update local state to show code immediately without refresh
-                setUsers(prev => prev.map(u => u.id === user.id ? { ...u, otp_code: code } : u));
+                setUsers(prev => (prev ?? []).map(u => u.id === user.id ? { ...u, otp_code: code } : u));
 
                 const cleanMobile = user.mobile_number.replace(/\D/g, '').replace(/^0+/, ''); 
                 const waNumber = `963${cleanMobile}`; 
@@ -271,12 +271,13 @@ const AdminPage: React.FC = () => {
     
     // Organize users into hierarchy: Lawyers (and admins) at top, their assistants nested
     const groupedUsers = React.useMemo(() => {
+        const safeUsers = users ?? [];
         // 1. Find all users who are NOT assistants (Lawyers/Admins)
-        const lawyers = users.filter(u => !u.lawyer_id); 
+        const lawyers = safeUsers.filter(u => !u.lawyer_id); 
         
         // 2. Create a map of lawyer_id -> [assistants]
         const assistantMap = new Map<string, Profile[]>();
-        users.filter(u => u.lawyer_id).forEach(assistant => {
+        safeUsers.filter(u => u.lawyer_id).forEach(assistant => {
             const lawyerId = assistant.lawyer_id!;
             if (!assistantMap.has(lawyerId)) {
                 assistantMap.set(lawyerId, []);
@@ -342,7 +343,7 @@ const AdminPage: React.FC = () => {
                                     currentAdminId={userId}
                                 />
                                 {/* Assistants Rows */}
-                                {assistants.length > 0 && assistants.map(assistant => (
+                                {(assistants ?? []).length > 0 && (assistants ?? []).map(assistant => (
                                     <UserRow 
                                         key={assistant.id}
                                         user={assistant}

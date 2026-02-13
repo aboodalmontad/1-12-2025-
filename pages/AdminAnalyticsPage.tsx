@@ -1,3 +1,4 @@
+
 import * as React from 'react';
 import { useData } from '../context/DataContext';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -39,10 +40,14 @@ const AdminAnalyticsPage: React.FC = () => {
 
         try {
             const today = new Date();
-            const activeSubscriptions = profiles.filter(p => p.subscription_end_date && new Date(p.subscription_end_date) >= today).length;
-            const pendingApprovals = profiles.filter(p => !p.is_approved).length;
+            const safeProfiles = profiles ?? [];
+            const safeClients = clients ?? [];
+            const safeAdminTasks = adminTasks ?? [];
 
-            const allCases = clients.flatMap(c => c.cases);
+            const activeSubscriptions = safeProfiles.filter(p => p.subscription_end_date && new Date(p.subscription_end_date) >= today).length;
+            const pendingApprovals = safeProfiles.filter(p => !p.is_approved).length;
+
+            const allCases = safeClients.flatMap(c => c.cases ?? []);
             const caseStatusCounts = allCases.reduce((acc, c) => {
                 acc[c.status] = (acc[c.status] || 0) + 1;
                 return acc;
@@ -55,7 +60,7 @@ const AdminAnalyticsPage: React.FC = () => {
             
             const thirtyDaysAgo = new Date();
             thirtyDaysAgo.setDate(today.getDate() - 30);
-            const userSignups = profiles
+            const userSignups = safeProfiles
                 .filter(p => p.created_at && new Date(p.created_at) >= thirtyDaysAgo)
                 .reduce((acc, p) => {
                     const dateStr = new Date(p.created_at!).toLocaleDateString('en-CA'); // YYYY-MM-DD
@@ -67,15 +72,15 @@ const AdminAnalyticsPage: React.FC = () => {
                 .map(([date, count]) => ({ date, "مستخدمين جدد": count }))
                 .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-            const activityByUser = profiles.map(p => {
-                const clientCount = clients.filter(c => (c as any).user_id === p.id).length;
+            const activityByUser = safeProfiles.map(p => {
+                const clientCount = safeClients.filter(c => (c as any).user_id === p.id).length;
                 const caseCount = allCases.filter(c => (c as any).user_id === p.id).length;
-                const taskCount = adminTasks.filter(t => (t as any).user_id === p.id).length;
+                const taskCount = safeAdminTasks.filter(t => (t as any).user_id === p.id).length;
                 return { name: p.full_name, "عدد الإدخالات": clientCount + caseCount + taskCount };
             }).sort((a, b) => b["عدد الإدخالات"] - a["عدد الإدخالات"]).slice(0, 10);
 
             setStats({
-                totalUsers: profiles.length,
+                totalUsers: safeProfiles.length,
                 activeSubscriptions,
                 pendingApprovals,
                 caseStatusData,
@@ -123,7 +128,7 @@ const AdminAnalyticsPage: React.FC = () => {
                     <ResponsiveContainer width="100%" height={300}>
                          <PieChart>
                             <Pie data={stats.caseStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
-                                {stats.caseStatusData.map((_entry: any, index: number) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
+                                {(stats.caseStatusData ?? []).map((_entry: any, index: number) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
                             </Pie>
                             <Tooltip content={<CustomTooltip />} />
                             <Legend />

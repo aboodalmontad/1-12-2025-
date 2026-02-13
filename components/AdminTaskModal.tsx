@@ -1,3 +1,4 @@
+
 import * as React from 'react';
 import { AdminTask } from '../types';
 import { toInputDateString } from '../utils/dateUtils';
@@ -19,7 +20,6 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
         location: '',
     });
     
-    // Effect to reset and populate form state when the modal opens.
     React.useEffect(() => {
         if (isOpen) {
             const defaultState = {
@@ -45,13 +45,11 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
         const [year, month, day] = taskFormData.dueDate.split('-').map(Number);
         const taskDate = new Date(year, month - 1, day);
 
-        // Explicitly construct the payload for onSubmit to ensure type safety and prevent spreading unwanted properties.
         onSubmit({
-            // Spread taskFormData to include any other properties like orderIndex if they exist
             ...taskFormData,
-            id: initialData?.id, // Override with id from initialData for editing
-            dueDate: taskDate, // Use the parsed Date object
-            location: taskFormData.location || 'غير محدد', // Ensure location has a default
+            id: initialData?.id, 
+            dueDate: taskDate, 
+            location: taskFormData.location || 'غير محدد', 
         } as Omit<AdminTask, 'completed'> & { id?: string });
     };
 
@@ -68,41 +66,27 @@ const AdminTaskModal: React.FC<AdminTaskModalProps> = ({ isOpen, onClose, onSubm
                     </div>
                      <div>
                         <label className="block text-sm font-medium text-gray-700">المكان</label>
-                        <input 
-                            type="text" 
-                            name="location" 
-                            list="locations"
-                            value={taskFormData.location || ''} 
-                            onChange={handleTaskFormChange} 
-                            className="w-full p-2 border rounded" 
-                            placeholder="مثال: القصر العدلي"
-                        />
+                        <input type="text" name="location" list="locations" value={taskFormData.location || ''} onChange={handleTaskFormChange} className="w-full p-2 border rounded" placeholder="مثال: القصر العدلي" />
                         <datalist id="locations">
-                            <option value="القصر العدلي" />
-                            <option value="المكتب" />
-                            <option value="السجل العقاري" />
-                            <option value="السجل المدني" />
-                            <option value="المالية" />
+                            <option value="القصر العدلي" /><option value="المكتب" /><option value="السجل العقاري" /><option value="السجل المدني" /><option value="المالية" />
                         </datalist>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700">تاريخ الاستحقاق</label>
-                            <input type="date" name="dueDate" value={taskFormData.dueDate} onChange={handleTaskFormChange} className="w-full p-2 border rounded" placeholder="DD/MM/YYYY" required />
+                            <input type="date" name="dueDate" value={taskFormData.dueDate} onChange={handleTaskFormChange} className="w-full p-2 border rounded" required />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700">الأهمية</label>
                             <select name="importance" value={taskFormData.importance} onChange={handleTaskFormChange} className="w-full p-2 border rounded" required>
-                                <option value="normal">عادي</option>
-                                <option value="important">مهم</option>
-                                <option value="urgent">عاجل</option>
+                                <option value="normal">عادي</option><option value="important">مهم</option><option value="urgent">عاجل</option>
                             </select>
                         </div>
                     </div>
                      <div>
                         <label className="block text-sm font-medium text-gray-700">تخصيص لـ</label>
                         <select name="assignee" value={taskFormData.assignee} onChange={handleTaskFormChange} className="w-full p-2 border rounded">
-                            {assistants.map(name => <option key={name} value={name}>{name}</option>)}
+                            {(assistants || []).map(name => <option key={name} value={name}>{name}</option>)}
                         </select>
                     </div>
                     <div className="mt-6 flex justify-end gap-4">

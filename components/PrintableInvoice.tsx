@@ -1,3 +1,4 @@
+
 import * as React from 'react';
 import { Invoice } from '../types';
 import { formatDate } from '../utils/dateUtils';
@@ -12,7 +13,7 @@ const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({ invoice, officeInfo
         return <div className="p-8 text-center text-gray-500">لا توجد فاتورة لعرضها.</div>;
     }
 
-    const subtotal = invoice.items.reduce((sum, item) => sum + item.amount, 0);
+    const subtotal = (invoice.items || []).reduce((sum, item) => sum + item.amount, 0);
     const taxAmount = (subtotal * invoice.taxRate) / 100;
     const total = subtotal + taxAmount - invoice.discount;
 
@@ -72,7 +73,7 @@ const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({ invoice, officeInfo
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                        {invoice.items.map(item => (
+                        {(invoice.items || []).map(item => (
                             <tr key={item.id}>
                                 <td className="px-4 py-3">{item.description}</td>
                                 <td className="px-4 py-3 text-left font-mono">{item.amount.toLocaleString('ar-SY')}</td>

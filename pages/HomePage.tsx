@@ -11,7 +11,6 @@ import { MenuItem } from '../components/ContextMenu';
 import { useDebounce } from '../hooks/useDebounce';
 import { useData } from '../context/DataContext';
 
-// ... (Constants importanceMap, importanceMapAdminTasks, formatTime, and AppointmentsTable remain the same)
 const importanceMap: { [key: string]: { text: string, className: string } } = {
     normal: { text: 'عادي', className: 'bg-gray-100 text-gray-800' },
     important: { text: 'مهم', className: 'bg-yellow-100 text-yellow-800' },
@@ -62,7 +61,7 @@ const AppointmentsTable: React.FC<{ appointments: Appointment[], onAddAppointmen
                     <span>موعد جديد</span>
                 </button>
             </div>
-            {appointments.length > 0 ? (
+            {(appointments ?? []).length > 0 ? (
                  <div className="overflow-x-auto">
                     <table className="w-full text-sm text-right text-gray-600">
                         <thead className="text-xs text-gray-700 uppercase bg-gray-100">
@@ -76,7 +75,7 @@ const AppointmentsTable: React.FC<{ appointments: Appointment[], onAddAppointmen
                             </tr>
                         </thead>
                         <tbody>
-                            {appointments.map(a => (
+                            {(appointments ?? []).map(a => (
                                 <tr 
                                     key={a.id} 
                                     onContextMenu={(e) => onContextMenu(e, a)}
@@ -147,10 +146,9 @@ const HomePage: React.FC<HomePageProps> = ({
         setAdminTasksLayout,
         locationOrder: savedLocationOrder,
         setLocationOrder: setSavedLocationOrder,
-        permissions, // Destructure permissions
+        permissions, 
     } = useData();
 
-    // ... (State variables and effects remain the same)
     const [calendarViewDate, setCalendarViewDate] = React.useState(selectedDate);
     type ViewMode = 'daily' | 'unpostponed' | 'upcoming';
     const [viewMode, setViewMode] = React.useState<ViewMode>('daily');
@@ -186,7 +184,6 @@ const HomePage: React.FC<HomePageProps> = ({
         setCalendarViewDate(selectedDate);
     }, [selectedDate]);
 
-    // ... (Appointment and Task Handlers remain same)
     const handleOpenAddAppointmentModal = () => {
         setEditingAppointment(null);
         setNewAppointment({ title: '', date: toInputDateString(selectedDate), time: '', importance: 'normal', reminderTimeInMinutes: 15, assignee: 'بدون تخصيص' });
@@ -215,7 +212,7 @@ const HomePage: React.FC<HomePageProps> = ({
     
     const handleToggleAppointmentComplete = (id: string) => {
         setAppointments(prev => 
-            prev.map(apt => 
+            (prev ?? []).map(apt => 
                 apt.id === id ? { ...apt, completed: !apt.completed, updated_at: new Date() } : apt
             )
         );
@@ -245,7 +242,7 @@ const HomePage: React.FC<HomePageProps> = ({
         const appointmentDate = new Date(year, month - 1, day);
 
         if (editingAppointment) {
-            setAppointments(prev => prev.map(apt => apt.id === editingAppointment.id ? {
+            setAppointments(prev => (prev ?? []).map(apt => apt.id === editingAppointment.id ? {
                 ...apt,
                 title: newAppointment.title,
                 date: appointmentDate,
@@ -269,7 +266,7 @@ const HomePage: React.FC<HomePageProps> = ({
                 notified: false,
                 updated_at: new Date(),
             };
-            setAppointments(prevAppointments => [...prevAppointments, newAppointmentObject]);
+            setAppointments(prevAppointments => [...(prevAppointments ?? []), newAppointmentObject]);
         }
         handleCloseAppointmentModal();
     };
@@ -309,12 +306,12 @@ const HomePage: React.FC<HomePageProps> = ({
     };
 
     const handleToggleTaskComplete = (id: string) => {
-        setAdminTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed, updated_at: new Date() } : t));
+        setAdminTasks(prev => (prev ?? []).map(t => t.id === id ? { ...t, completed: !t.completed, updated_at: new Date() } : t));
     };
 
     const handleAssigneeChange = (taskId: string, newAssignee: string) => {
         setAdminTasks(prevTasks =>
-            prevTasks.map(t =>
+            (prevTasks ?? []).map(t =>
                 t.id === taskId ? { ...t, assignee: newAssignee, updated_at: new Date() } : t
             )
         );
@@ -335,7 +332,6 @@ const HomePage: React.FC<HomePageProps> = ({
         window.open(whatsappUrl, '_blank');
     };
 
-    // ... (Drag and Drop Handlers remain the same)
     const handleDragStart = (e: React.DragEvent, type: 'task' | 'group', id: string) => { e.stopPropagation(); document.body.classList.add('grabbing'); if (type === 'task') { e.dataTransfer.setData('application/lawyer-app-task-id', id); e.dataTransfer.effectAllowed = 'move'; draggedTaskId.current = id; } else { e.dataTransfer.setData('application/lawyer-app-group-location', id); e.dataTransfer.effectAllowed = 'move'; setDraggedGroupLocation(id); } setIsDragging(true); };
     const handleDragEnd = () => { document.body.classList.remove('grabbing'); draggedTaskId.current = null; setDraggedGroupLocation(null); setIsDragging(false); setDragOverTaskId(null); setDropPosition(null); setDragOverLocation(null); };
 
@@ -344,7 +340,7 @@ const HomePage: React.FC<HomePageProps> = ({
         if (!currentDraggedId) return;
     
         setAdminTasks(currentTasks => {
-            const updatedTasks = currentTasks.map(t => ({...t}));
+            const updatedTasks = (currentTasks ?? []).map(t => ({...t}));
     
             const draggedTask = updatedTasks.find(t => t.id === currentDraggedId);
             if (!draggedTask) return currentTasks;
@@ -403,19 +399,17 @@ const HomePage: React.FC<HomePageProps> = ({
     const handleGroupDragOver = (e: React.DragEvent) => { e.preventDefault(); };
     const handleGroupDrop = (e: React.DragEvent, targetLocation: string) => { e.preventDefault(); const taskId = e.dataTransfer.getData('application/lawyer-app-task-id'); if (taskId) { handleTaskDrop(null, targetLocation, 'after'); } };
 
-    // Session Handlers
     const handlePostponeSession = (sessionId: string, newDate: Date, newReason: string) => { postponeSession(sessionId, newDate, newReason); };
-    const handleUpdateSession = (sessionId: string, updatedFields: Partial<Session>) => { setClients(currentClients => { return currentClients.map(client => ({ ...client, updated_at: new Date(), cases: client.cases.map(caseItem => ({ ...caseItem, updated_at: new Date(), stages: caseItem.stages.map(stage => { const sessionIndex = stage.sessions.findIndex(s => s.id === sessionId); if (sessionIndex === -1) { return stage; } const updatedSessions = [...stage.sessions]; updatedSessions[sessionIndex] = { ...updatedSessions[sessionIndex], ...updatedFields, updated_at: new Date(), }; return { ...stage, sessions: updatedSessions, updated_at: new Date(), }; }), })), })); }); };
-    const handleOpenDecideModal = (session: Session) => { if (!session.stageId) { console.error("Cannot decide session: stageId is missing.", session); return; } let foundStage: Stage | null = null; for (const client of clients) { for (const caseItem of client.cases) { const stage = caseItem.stages.find(st => st.id === session.stageId); if (stage) { foundStage = stage; break; } } if (foundStage) break; } if (!foundStage) { console.error("Cannot decide session: Corresponding stage not found for stageId:", session.stageId); return; } setDecideFormData({ decisionNumber: '', decisionSummary: '', decisionNotes: '' }); setDecideModal({ isOpen: true, session, stage: foundStage }); };
+    const handleUpdateSession = (sessionId: string, updatedFields: Partial<Session>) => { setClients(currentClients => { return (currentClients ?? []).map(client => ({ ...client, updated_at: new Date(), cases: (client.cases ?? []).map(caseItem => ({ ...caseItem, updated_at: new Date(), stages: (caseItem.stages ?? []).map(stage => { const sessionIndex = (stage.sessions ?? []).findIndex(s => s.id === sessionId); if (sessionIndex === -1) { return stage; } const updatedSessions = [...(stage.sessions ?? [])]; updatedSessions[sessionIndex] = { ...updatedSessions[sessionIndex], ...updatedFields, updated_at: new Date(), }; return { ...stage, sessions: updatedSessions, updated_at: new Date(), }; }), })), })); }); };
+    const handleOpenDecideModal = (session: Session) => { if (!session.stageId) { console.error("Cannot decide session: stageId is missing.", session); return; } let foundStage: Stage | null = null; for (const client of (clients ?? [])) { for (const caseItem of (client.cases ?? [])) { const stage = (caseItem.stages ?? []).find(st => st.id === session.stageId); if (stage) { foundStage = stage; break; } } if (foundStage) break; } if (!foundStage) { console.error("Cannot decide session: Corresponding stage not found for stageId:", session.stageId); return; } setDecideFormData({ decisionNumber: '', decisionSummary: '', decisionNotes: '' }); setDecideModal({ isOpen: true, session, stage: foundStage }); };
     const handleCloseDecideModal = () => { setDecideModal({ isOpen: false }); };
-    const handleDecideSubmit = (e: React.FormEvent) => { e.preventDefault(); const { session, stage } = decideModal; if (!session || !stage) return; setClients(currentClients => currentClients.map(client => ({ ...client, updated_at: new Date(), cases: client.cases.map(c => ({ ...c, updated_at: new Date(), stages: c.stages.map(st => { if (st.id === stage.id) { return { ...st, decisionDate: session.date, decisionNumber: decideFormData.decisionNumber, decisionSummary: decideFormData.decisionSummary, decisionNotes: decideFormData.decisionNotes, updated_at: new Date(), }; } return st; }) })) }))); handleCloseDecideModal(); };
+    const handleDecideSubmit = (e: React.FormEvent) => { e.preventDefault(); const { session, stage } = decideModal; if (!session || !stage) return; setClients(currentClients => (currentClients ?? []).map(client => ({ ...client, updated_at: new Date(), cases: (client.cases ?? []).map(c => ({ ...c, updated_at: new Date(), stages: (c.stages ?? []).map(st => { if (st.id === stage.id) { return { ...st, decisionDate: session.date, decisionNumber: decideFormData.decisionNumber, decisionSummary: decideFormData.decisionSummary, decisionNotes: decideFormData.decisionNotes, updated_at: new Date(), }; } return st; }) })) }))); handleCloseDecideModal(); };
 
-    // Memos
-    const dailyData = React.useMemo(() => ({ dailySessions: allSessions.filter(s => isSameDay(s.date, selectedDate)), dailyAppointments: appointments.filter(a => isSameDay(a.date, selectedDate)) }), [selectedDate, allSessions, appointments]);
-    const upcomingSessions = React.useMemo(() => { const tomorrow = new Date(selectedDate); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(0, 0, 0, 0); return allSessions.filter(s => new Date(s.date) >= tomorrow).sort((a, b) => a.date.getTime() - b.date.getTime()); }, [allSessions, selectedDate]);
+    const dailyData = React.useMemo(() => ({ dailySessions: (allSessions ?? []).filter(s => isSameDay(s.date, selectedDate)), dailyAppointments: (appointments ?? []).filter(a => isSameDay(a.date, selectedDate)) }), [selectedDate, allSessions, appointments]);
+    const upcomingSessions = React.useMemo(() => { const tomorrow = new Date(selectedDate); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(0, 0, 0, 0); return (allSessions ?? []).filter(s => new Date(s.date) >= tomorrow).sort((a, b) => a.date.getTime() - b.date.getTime()); }, [allSessions, selectedDate]);
     const groupedTasks: Record<string, AdminTask[]> = React.useMemo(() => {
         const isCompleted = activeTaskTab === 'completed';
-        const filtered = adminTasks.filter(task => {
+        const filtered = (adminTasks ?? []).filter(task => {
             const searchLower = debouncedAdminTaskSearch.toLowerCase();
             const matchesSearch = searchLower === '' || task.task.toLowerCase().includes(searchLower) || (task.assignee && task.assignee.toLowerCase().includes(searchLower)) || (task.location && task.location.toLowerCase().includes(searchLower));
             return task.completed === isCompleted && matchesSearch;
@@ -440,16 +434,15 @@ const HomePage: React.FC<HomePageProps> = ({
     const handleShowTodaysAgenda = () => { const today = new Date(); setSelectedDate(today); setCalendarViewDate(today); setViewMode('daily'); };
     const getTitle = () => { switch(viewMode) { case 'unpostponed': return "الجلسات غير المرحلة"; case 'upcoming': return `الجلسات القادمة (بعد ${formatDate(selectedDate)})`; case 'daily': default: return `جدول أعمال يوم: ${formatDate(selectedDate)}`; } };
     
-    // ... (ContextMenu Handlers remain same)
     const handleAppointmentContextMenu = (event: React.MouseEvent, appointment: Appointment) => { const menuItems: MenuItem[] = [ { label: 'إرسال إلى المهام الإدارية', icon: <BuildingLibraryIcon className="w-4 h-4" />, onClick: () => { const description = `متابعة موعد "${appointment.title}" يوم ${formatDate(appointment.date)} الساعة ${formatTime(appointment.time)}.\nالمكلف: ${appointment.assignee || 'غير محدد'}.\nالأهمية: ${importanceMap[appointment.importance]?.text}.`; onOpenAdminTaskModal({ task: description, assignee: appointment.assignee, importance: appointment.importance, }); } }, { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => { const message = [ `*موعد:* ${appointment.title}`, `*التاريخ:* ${formatDate(appointment.date)}`, `*الوقت:* ${formatTime(appointment.time)}`, `*المسؤول:* ${appointment.assignee || 'غير محدد'}`, `*الأهمية:* ${importanceMap[appointment.importance]?.text}` ].join('\n'); const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`; window.open(whatsappUrl, '_blank'); } } ]; showContextMenu(event, menuItems); }
-    const handleSessionContextMenu = (event: React.MouseEvent, session: Session) => { let client, caseItem, stage; for (const c of clients) { for (const cs of c.cases) { const s = cs.stages.find(st => st.id === session.stageId); if (s) { client = c; caseItem = cs; stage = s; break; } } if (stage) break; } let description = ''; let message = ''; if (client && caseItem && stage) { const details = [ `*الموكل:* ${client.name}`, `*الخصم:* ${caseItem.opponentName}`, `*القضية:* ${caseItem.subject}`, `*المحكمة:* ${stage.court}`, `*رقم الأساس:* ${stage.caseNumber}`, `*تاريخ الجلسة:* ${formatDate(session.date)}`, `*المكلف بالحضور:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponementReason || 'لا يوجد'}` ]; if (session.stageDecisionDate) { details.push('---'); details.push(`*تم حسم المرحلة:*`); details.push(`*تاريخ الحسم:* ${formatDate(new Date(session.stageDecisionDate))}`); if (stage.decisionNumber) details.push(`*رقم القرار:* ${stage.decisionNumber}`); if (stage.decisionSummary) details.push(`*ملخص القرار:* ${stage.decisionSummary}`); } description = `متابعة جلسة قضائية:\n- ${details.join('\n- ')}`; message = `*ملخص جلسة قضائية:*\n${details.join('\n')}`; } else { description = `متابعة جلسة قضية (${session.clientName} ضد ${session.opponentName}) يوم ${formatDate(session.date)} في محكمة ${session.court} (أساس: ${session.caseNumber}).\nسبب التأجيل السابق: ${session.postponementReason || 'لا يوجد'}.\nالمكلف بالحضور: ${session.assignee}.`; message = [ `*جلسة قضائية:*`, `*القضية:* ${session.clientName} ضد ${session.opponentName}`, `*المحكمة:* ${session.court} (أساس: ${session.caseNumber})`, `*التاريخ:* ${formatDate(session.date)}`, `*المسؤول:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponementReason || 'لا يوجد'}` ].join('\n'); } const menuItems: MenuItem[] = [ { label: 'إرسال إلى المهام الإدارية', icon: <BuildingLibraryIcon className="w-4 h-4" />, onClick: () => { onOpenAdminTaskModal({ task: description, assignee: session.assignee, }); } }, { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => { const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`; window.open(whatsappUrl, '_blank'); } } ]; showContextMenu(event, menuItems); }
+    const handleSessionContextMenu = (event: React.MouseEvent, session: Session) => { let client, caseItem, stage; for (const c of (clients ?? [])) { for (const cs of (c.cases ?? [])) { const s = (cs.stages ?? []).find(st => st.id === session.stageId); if (s) { client = c; caseItem = cs; stage = s; break; } } if (stage) break; } let description = ''; let message = ''; if (client && caseItem && stage) { const details = [ `*الموكل:* ${client.name}`, `*الخصم:* ${caseItem.opponentName}`, `*القضية:* ${caseItem.subject}`, `*المحكمة:* ${stage.court}`, `*رقم الأساس:* ${stage.caseNumber}`, `*تاريخ الجلسة:* ${formatDate(session.date)}`, `*المكلف بالحضور:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponementReason || 'لا يوجد'}` ]; if (session.stageDecisionDate) { details.push('---'); details.push(`*تم حسم المرحلة:*`); details.push(`*تاريخ الحسم:* ${formatDate(new Date(session.stageDecisionDate))}`); if (stage.decisionNumber) details.push(`*رقم القرار:* ${stage.decisionNumber}`); if (stage.decisionSummary) details.push(`*ملخص القرار:* ${stage.decisionSummary}`); } description = `متابعة جلسة قضائية:\n- ${details.join('\n- ')}`; message = `*ملخص جلسة قضائية:*\n${details.join('\n')}`; } else { description = `متابعة جلسة قضية (${session.clientName} ضد ${session.opponentName}) يوم ${formatDate(session.date)} في محكمة ${session.court} (أساس: ${session.caseNumber}).\nسبب التأجيل السابق: ${session.postponementReason || 'لا يوجد'}.\nالمكلف بالحضور: ${session.assignee}.`; message = [ `*جلسة قضائية:*`, `*القضية:* ${session.clientName} ضد ${session.opponentName}`, `*المحكمة:* ${session.court} (أساس: ${session.caseNumber})`, `*التاريخ:* ${formatDate(session.date)}`, `*المسؤول:* ${session.assignee || 'غير محدد'}`, `*سبب التأجيل السابق:* ${session.postponementReason || 'لا يوجد'}` ].join('\n'); } const menuItems: MenuItem[] = [ { label: 'إرسال إلى المهام الإدارية', icon: <BuildingLibraryIcon className="w-4 h-4" />, onClick: () => { onOpenAdminTaskModal({ task: description, assignee: session.assignee, }); } }, { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => { const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`; window.open(whatsappUrl, '_blank'); } } ]; showContextMenu(event, menuItems); }
     const handleAdminTaskContextMenu = (event: React.MouseEvent, task: AdminTask) => { const menuItems: MenuItem[] = [ { label: 'مشاركة عبر واتساب', icon: <ShareIcon className="w-4 h-4" />, onClick: () => handleShareTask(task), }, ]; showContextMenu(event, menuItems); };
 
     const adminTaskLongPressTimer = React.useRef<number | null>(null);
     const handleAdminTaskTouchStart = (e: React.TouchEvent, task: AdminTask) => { adminTaskLongPressTimer.current = window.setTimeout(() => { const touch = e.touches[0]; const mockEvent = { preventDefault: () => e.preventDefault(), clientX: touch.clientX, clientY: touch.clientY }; handleAdminTaskContextMenu(mockEvent as any, task); }, 500); };
     const handleAdminTaskTouchEnd = () => { if (adminTaskLongPressTimer.current !== null) { window.clearTimeout(adminTaskLongPressTimer.current); adminTaskLongPressTimer.current = null; } };
 
-    const renderTaskItem = (task: AdminTask, location: string) => ( <div key={task.id} draggable={activeTaskTab === 'pending'} onDragStart={e => handleDragStart(e, 'task', task.id)} onDragEnd={handleDragEnd} onDragOver={e => { if (activeTaskTab !== 'pending' || !draggedTaskId.current || draggedTaskId.current === task.id) return; e.preventDefault(); setDragOverTaskId(task.id); const rect = e.currentTarget.getBoundingClientRect(); const midpoint = rect.top + rect.height / 2; setDropPosition(e.clientY < midpoint ? 'before' : 'after'); }} onDragLeave={() => { setDragOverTaskId(null); setDropPosition(null); }} onDrop={e => { if (activeTaskTab !== 'pending' || !dropPosition) return; e.preventDefault(); e.stopPropagation(); handleTaskDrop(task.id, location, dropPosition); setDragOverTaskId(null); setDropPosition(null); }} onContextMenu={(e) => handleAdminTaskContextMenu(e, task)} onTouchStart={(e) => handleAdminTaskTouchStart(e, task)} onTouchEnd={handleAdminTaskTouchEnd} onTouchMove={handleAdminTaskTouchEnd} className={`relative p-3 border rounded-lg transition-all duration-150 ${draggedTaskId.current === task.id ? 'opacity-40 scale-95' : 'opacity-100 scale-100'} ${task.completed ? 'bg-green-50/70 border-green-200' : 'bg-white border-gray-200 hover:bg-gray-50 hover:shadow-sm'} ${activeTaskTab === 'pending' ? 'cursor-move' : ''}`} > {dragOverTaskId === task.id && dropPosition === 'before' && <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500 rounded-full z-10"></div>} <div className="flex items-start gap-3"> <div className="flex-shrink-0 pt-1"> <input type="checkbox" checked={task.completed} onChange={() => handleToggleTaskComplete(task.id)} className="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" /> </div> <div className="flex-grow min-w-0"> <p className={`font-medium text-base whitespace-pre-wrap ${task.completed ? 'line-through text-gray-500' : 'text-gray-900'}`}>{task.task}</p> <div className="mt-2 flex items-center gap-x-4 gap-y-2 text-sm text-gray-600"> <div className="flex items-center gap-1.5" onClick={() => activeTaskTab === 'pending' && setEditingAssigneeTaskId(task.id)}> <UserIcon className="w-4 h-4 text-gray-400" /> {editingAssigneeTaskId === task.id ? ( <select value={task.assignee} onChange={(e) => handleAssigneeChange(task.id, e.target.value)} onBlur={() => setEditingAssigneeTaskId(null)} className="p-1 border rounded bg-white text-sm focus:ring-blue-500 focus:border-blue-500" autoFocus> {assistants.map(name => ( <option key={name} value={name}> {name} </option> ))} </select> ) : ( <span className={activeTaskTab === 'pending' ? 'cursor-pointer hover:text-blue-600' : ''}> {task.assignee || '-'} </span> )} </div> <div className="flex items-center gap-1.5"> <CalendarIcon className="w-4 h-4 text-gray-400" /> <span>{formatDate(task.dueDate)}</span> </div> <div className="flex items-center gap-1.5"> <span className={`px-2 py-1 text-xs font-semibold rounded-full ${importanceMapAdminTasks[task.importance]?.className}`}> {importanceMapAdminTasks[task.importance]?.text} </span> </div> </div> </div> <div className="flex flex-col sm:flex-row items-center gap-0 sm:gap-1 flex-shrink-0"> <button onClick={() => handleShareTask(task)} className="p-2 text-gray-500 hover:bg-gray-100 hover:text-green-600 rounded-full" title="مشاركة عبر واتساب"><ShareIcon className="w-4 h-4" /></button> 
+    const renderTaskItem = (task: AdminTask, location: string) => ( <div key={task.id} draggable={activeTaskTab === 'pending'} onDragStart={e => handleDragStart(e, 'task', task.id)} onDragEnd={handleDragEnd} onDragOver={e => { if (activeTaskTab !== 'pending' || !draggedTaskId.current || draggedTaskId.current === task.id) return; e.preventDefault(); setDragOverTaskId(task.id); const rect = e.currentTarget.getBoundingClientRect(); const midpoint = rect.top + rect.height / 2; setDropPosition(e.clientY < midpoint ? 'before' : 'after'); }} onDragLeave={() => { setDragOverTaskId(null); setDropPosition(null); }} onDrop={e => { if (activeTaskTab !== 'pending' || !dropPosition) return; e.preventDefault(); e.stopPropagation(); handleTaskDrop(task.id, location, dropPosition); setDragOverTaskId(null); setDropPosition(null); }} onContextMenu={(e) => handleAdminTaskContextMenu(e, task)} onTouchStart={(e) => handleAdminTaskTouchStart(e, task)} onTouchEnd={handleAdminTaskTouchEnd} onTouchMove={handleAdminTaskTouchEnd} className={`relative p-3 border rounded-lg transition-all duration-150 ${draggedTaskId.current === task.id ? 'opacity-40 scale-95' : 'opacity-100 scale-100'} ${task.completed ? 'bg-green-50/70 border-green-200' : 'bg-white border-gray-200 hover:bg-gray-50 hover:shadow-sm'} ${activeTaskTab === 'pending' ? 'cursor-move' : ''}`} > {dragOverTaskId === task.id && dropPosition === 'before' && <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500 rounded-full z-10"></div>} <div className="flex items-start gap-3"> <div className="flex-shrink-0 pt-1"> <input type="checkbox" checked={task.completed} onChange={() => handleToggleTaskComplete(task.id)} className="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" /> </div> <div className="flex-grow min-w-0"> <p className={`font-medium text-base whitespace-pre-wrap ${task.completed ? 'line-through text-gray-500' : 'text-gray-900'}`}>{task.task}</p> <div className="mt-2 flex items-center gap-x-4 gap-y-2 text-sm text-gray-600"> <div className="flex items-center gap-1.5" onClick={() => activeTaskTab === 'pending' && setEditingAssigneeTaskId(task.id)}> <UserIcon className="w-4 h-4 text-gray-400" /> {editingAssigneeTaskId === task.id ? ( <select value={task.assignee} onChange={(e) => handleAssigneeChange(task.id, e.target.value)} onBlur={() => setEditingAssigneeTaskId(null)} className="p-1 border rounded bg-white text-sm focus:ring-blue-500 focus:border-blue-500" autoFocus> {(assistants ?? []).map(name => ( <option key={name} value={name}> {name} </option> ))} </select> ) : ( <span className={activeTaskTab === 'pending' ? 'cursor-pointer hover:text-blue-600' : ''}> {task.assignee || '-'} </span> )} </div> <div className="flex items-center gap-1.5"> <CalendarIcon className="w-4 h-4 text-gray-400" /> <span>{formatDate(task.dueDate)}</span> </div> <div className="flex items-center gap-1.5"> <span className={`px-2 py-1 text-xs font-semibold rounded-full ${importanceMapAdminTasks[task.importance]?.className}`}> {importanceMapAdminTasks[task.importance]?.text} </span> </div> </div> </div> <div className="flex flex-col sm:flex-row items-center gap-0 sm:gap-1 flex-shrink-0"> <button onClick={() => handleShareTask(task)} className="p-2 text-gray-500 hover:bg-gray-100 hover:text-green-600 rounded-full" title="مشاركة عبر واتساب"><ShareIcon className="w-4 h-4" /></button> 
         {permissions.can_edit_admin_task && <button onClick={() => onOpenAdminTaskModal(task)} className="p-2 text-gray-500 hover:bg-gray-100 hover:text-blue-600 rounded-full"><PencilIcon className="w-4 h-4" /></button>} 
         {permissions.can_delete_admin_task && <button onClick={() => openDeleteTaskModal(task)} className="p-2 text-gray-500 hover:bg-gray-100 hover:text-red-600 rounded-full"><TrashIcon className="w-4 h-4" /></button>} 
     </div> </div> {dragOverTaskId === task.id && dropPosition === 'after' && <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500 rounded-full z-10"></div>} </div> );
@@ -463,8 +456,8 @@ const HomePage: React.FC<HomePageProps> = ({
                         <Calendar 
                             onDateSelect={handleDateSelect} 
                             selectedDate={selectedDate} 
-                            sessions={allSessions} 
-                            appointments={appointments}
+                            sessions={allSessions ?? []} 
+                            appointments={appointments ?? []}
                             currentDate={calendarViewDate}
                             setCurrentDate={setCalendarViewDate}
                         />
@@ -477,9 +470,9 @@ const HomePage: React.FC<HomePageProps> = ({
                                     <ExclamationTriangleIcon className="w-5 h-5" />
                                     <span>غير المرحلة</span>
                                 </button>
-                                {unpostponedSessions.length > 0 && (
+                                {(unpostponedSessions ?? []).length > 0 && (
                                      <span className="absolute -top-2 -start-2 flex h-5 w-5 items-center justify-center rounded-full bg-yellow-400 text-black text-xs font-bold ring-2 ring-white animate-pulse" title={`${unpostponedSessions.length} جلسات غير مرحلة`}>
-                                        {unpostponedSessions.length}
+                                        {(unpostponedSessions ?? []).length}
                                     </span>
                                 )}
                             </div>
@@ -511,20 +504,18 @@ const HomePage: React.FC<HomePageProps> = ({
                                         <div className="bg-white rounded-lg shadow overflow-hidden">
                                             <h3 className="text-lg font-bold p-4 bg-gray-50 border-b">جدول الجلسات</h3>
                                             <SessionsTable 
-                                                sessions={dailyData.dailySessions} 
+                                                sessions={dailyData.dailySessions ?? []} 
                                                 onPostpone={permissions.can_postpone_session ? handlePostponeSession : undefined} 
                                                 onUpdate={permissions.can_edit_session ? handleUpdateSession : undefined} 
                                                 onDecide={permissions.can_decide_session ? handleOpenDecideModal : undefined} 
-                                                assistants={assistants} 
+                                                assistants={assistants ?? []} 
                                                 allowPostponingPastSessions={true} 
                                                 onContextMenu={handleSessionContextMenu} 
                                             />
                                         </div>
                                         <AppointmentsTable 
-                                            appointments={dailyData.dailyAppointments} 
-                                            // ...
-                                            onAddAppointment={permissions.can_add_admin_task ? handleOpenAddAppointmentModal : () => {}} // Using general task permission or add a new one for appointments
-                                            // Note: Appointments currently don't have distinct permissions in the interface, using Admin Task ones as proxy or keep basic
+                                            appointments={dailyData.dailyAppointments ?? []} 
+                                            onAddAppointment={permissions.can_add_admin_task ? handleOpenAddAppointmentModal : () => {}} 
                                             onEdit={permissions.can_edit_admin_task ? handleOpenEditAppointmentModal : () => {}}
                                             onDelete={permissions.can_delete_admin_task ? openDeleteAppointmentModal : () => {}}
                                             onContextMenu={handleAppointmentContextMenu} 
@@ -535,11 +526,11 @@ const HomePage: React.FC<HomePageProps> = ({
                                 {viewMode === 'unpostponed' && (
                                     <div className="bg-white rounded-lg shadow overflow-hidden">
                                         <SessionsTable 
-                                            sessions={unpostponedSessions} 
+                                            sessions={unpostponedSessions ?? []} 
                                             onPostpone={permissions.can_postpone_session ? handlePostponeSession : undefined} 
                                             onUpdate={permissions.can_edit_session ? handleUpdateSession : undefined} 
                                             onDecide={permissions.can_decide_session ? handleOpenDecideModal : undefined} 
-                                            assistants={assistants} 
+                                            assistants={assistants ?? []} 
                                             allowPostponingPastSessions={true} 
                                             showSessionDate={true} 
                                             onContextMenu={handleSessionContextMenu} 
@@ -549,11 +540,11 @@ const HomePage: React.FC<HomePageProps> = ({
                                 {viewMode === 'upcoming' && (
                                     <div className="bg-white rounded-lg shadow overflow-hidden">
                                         <SessionsTable 
-                                            sessions={upcomingSessions} 
+                                            sessions={upcomingSessions ?? []} 
                                             onPostpone={permissions.can_postpone_session ? handlePostponeSession : undefined} 
                                             onUpdate={permissions.can_edit_session ? handleUpdateSession : undefined} 
                                             onDecide={permissions.can_decide_session ? handleOpenDecideModal : undefined} 
-                                            assistants={assistants} 
+                                            assistants={assistants ?? []} 
                                             showSessionDate={true} 
                                             onContextMenu={handleSessionContextMenu} 
                                         />
@@ -600,7 +591,6 @@ const HomePage: React.FC<HomePageProps> = ({
                             </div>
                         </div>
                     </div>
-                    {/* ... (rest of admin tasks view) */}
                     <div className="border-b border-gray-200">
                         <nav className="-mb-px flex space-x-4" aria-label="Tabs">
                             <button
@@ -620,9 +610,9 @@ const HomePage: React.FC<HomePageProps> = ({
 
                     {adminTasksLayout === 'vertical' ? (
                         <div className="flex flex-row gap-4 pt-4">
-                            {locationOrder.length > 0 && (
+                            {(locationOrder ?? []).length > 0 && (
                                 <nav className="flex flex-col gap-2 w-28 flex-shrink-0" aria-label="Location Tabs">
-                                    {locationOrder.map(location => (
+                                    {(locationOrder ?? []).map(location => (
                                         <button
                                             key={location}
                                             onClick={() => setActiveLocationTab(location)}
@@ -649,7 +639,7 @@ const HomePage: React.FC<HomePageProps> = ({
                                                     e.preventDefault();
                                                     e.stopPropagation();
                                                     if (!draggedGroupLocation || draggedGroupLocation === location) return;
-                                                    const newOrder = [...locationOrder];
+                                                    const newOrder = [...(locationOrder ?? [])];
                                                     const sourceIndex = newOrder.indexOf(draggedGroupLocation);
                                                     const targetIndex = newOrder.indexOf(location);
                                                     if (sourceIndex === -1 || targetIndex === -1) return;
@@ -673,7 +663,7 @@ const HomePage: React.FC<HomePageProps> = ({
                                 </nav>
                             )}
                             <div className="flex-grow min-w-0">
-                                 {locationOrder.length > 0 && activeLocationTab ? (
+                                 {(locationOrder ?? []).length > 0 && activeLocationTab ? (
                                     <div 
                                         onDragOver={handleGroupDragOver}
                                         onDrop={e => handleGroupDrop(e, activeLocationTab)}
@@ -690,7 +680,7 @@ const HomePage: React.FC<HomePageProps> = ({
                                 ) : (
                                     <div className="flex items-center justify-center bg-gray-50 border border-dashed rounded-lg min-h-[200px]">
                                         <p className="text-center text-gray-500 py-8">
-                                            {locationOrder.length > 0 ? "اختر مجموعة لعرض المهام" : "لا توجد مهام لعرضها."}
+                                            {(locationOrder ?? []).length > 0 ? "اختر مجموعة لعرض المهام" : "لا توجد مهام لعرضها."}
                                         </p>
                                     </div>
                                 )}
@@ -698,10 +688,10 @@ const HomePage: React.FC<HomePageProps> = ({
                         </div>
                     ) : (
                         <div className="pt-4">
-                            {locationOrder.length > 0 ? (
+                            {(locationOrder ?? []).length > 0 ? (
                                 <div>
                                     <nav className="-mb-px flex space-x-2 overflow-x-auto" aria-label="Location Tabs">
-                                        {locationOrder.map(location => (
+                                        {(locationOrder ?? []).map(location => (
                                             <button
                                                 key={location}
                                                 onClick={() => setActiveLocationTab(location)}
@@ -723,12 +713,12 @@ const HomePage: React.FC<HomePageProps> = ({
                                                         e.preventDefault();
                                                         e.stopPropagation();
                                                         handleTaskDrop(null, location, 'after');
-                                                    } else { // Existing group drop logic
+                                                    } else { 
                                                         if (activeTaskTab !== 'pending') return;
                                                         e.preventDefault();
                                                         e.stopPropagation();
                                                         if (!draggedGroupLocation || draggedGroupLocation === location) return;
-                                                        const newOrder = [...locationOrder];
+                                                        const newOrder = [...(locationOrder ?? [])];
                                                         const sourceIndex = newOrder.indexOf(draggedGroupLocation);
                                                         const targetIndex = newOrder.indexOf(location);
                                                         if (sourceIndex === -1 || targetIndex === -1) return;
@@ -777,7 +767,6 @@ const HomePage: React.FC<HomePageProps> = ({
                     <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
                         <h2 className="text-xl font-bold mb-4">{editingAppointment ? 'تعديل موعد' : 'إضافة موعد جديد'}</h2>
                         <form onSubmit={handleSaveAppointment}>
-                            {/* ... (Appointment form inputs) ... */}
                             <div className="space-y-4">
                                 <div>
                                     <label htmlFor="title" className="block text-sm font-medium text-gray-700">الموعد</label>
@@ -800,7 +789,7 @@ const HomePage: React.FC<HomePageProps> = ({
                                 <div>
                                     <label htmlFor="assignee" className="block text-sm font-medium text-gray-700">الشخص المسؤول</label>
                                     <select id="assignee" name="assignee" value={newAppointment.assignee} onChange={handleAppointmentFormChange} className="mt-1 w-full p-2 border rounded">
-                                        {assistants.map(name => <option key={name} value={name}>{name}</option>)}
+                                        {(assistants ?? []).map(name => <option key={name} value={name}>{name}</option>)}
                                     </select>
                                 </div>
                                 <div>

@@ -31,15 +31,15 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ caseData, client, caseA
     }
 
     const sortedEntries = React.useMemo(() =>
-        [...caseAccountingEntries].sort((a, b) => b.date.getTime() - a.date.getTime()),
+        [...(caseAccountingEntries ?? [])].sort((a, b) => b.date.getTime() - a.date.getTime()),
         [caseAccountingEntries]
     );
 
     const totals = React.useMemo(() => {
-        const income = caseAccountingEntries
+        const income = (caseAccountingEntries ?? [])
             .filter(e => e.type === 'income')
             .reduce((sum, e) => sum + e.amount, 0);
-        const expense = caseAccountingEntries
+        const expense = (caseAccountingEntries ?? [])
             .filter(e => e.type === 'expense')
             .reduce((sum, e) => sum + e.amount, 0);
         return { income, expense, balance: income - expense };
@@ -76,16 +76,16 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ caseData, client, caseA
         };
 
         if (modal.data) { // Editing
-            setAccountingEntries(prev => prev.map(item => item.id === modal.data!.id ? { ...item, ...entryData } as AccountingEntry : item));
+            setAccountingEntries(prev => (prev ?? []).map(item => item.id === modal.data!.id ? { ...item, ...entryData } as AccountingEntry : item));
         } else { // Adding
-            setAccountingEntries(prev => [...prev, { ...entryData, id: `acc-${Date.now()}` } as AccountingEntry]);
+            setAccountingEntries(prev => [...(prev ?? []), { ...entryData, id: `acc-${Date.now()}` } as AccountingEntry]);
         }
         handleCloseModal();
     };
 
     const handleDelete = (id: string) => {
         if (window.confirm('هل أنت متأكد من حذف هذا القيد؟')) {
-            setAccountingEntries(prev => prev.filter(item => item.id !== id));
+            setAccountingEntries(prev => (prev ?? []).filter(item => item.id !== id));
         }
     };
 
@@ -136,7 +136,7 @@ const CaseAccounting: React.FC<CaseAccountingProps> = ({ caseData, client, caseA
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedEntries.length > 0 ? sortedEntries.map(entry => (
+                            {(sortedEntries ?? []).length > 0 ? (sortedEntries ?? []).map(entry => (
                                 <tr key={entry.id} className="border-t hover:bg-gray-50">
                                     <td className="px-4 py-2">{formatDate(entry.date)}</td>
                                     <td className="px-4 py-2">{entry.description}</td>

@@ -42,7 +42,7 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
     const { permissions } = props;
 
     const handleContextMenu = (event: React.MouseEvent) => {
-        const latestSession = stage.sessions.length > 0 ? stage.sessions.reduce((latest, current) => new Date(current.date) > new Date(latest.date) ? current : latest) : null;
+        const latestSession = (stage.sessions ?? []).length > 0 ? (stage.sessions ?? []).reduce((latest, current) => new Date(current.date) > new Date(latest.date) ? current : latest) : null;
 
         const details = [
             `*الموكل:* ${client.name}`,
@@ -208,7 +208,7 @@ const StageItem: React.FC<{ stage: Stage; caseItem: Case; client: Client; props:
                         الجلسات
                     </h5>
                     <SessionsTable
-                        sessions={stage.sessions.map(s => ({ ...s, stageId: stage.id, stageDecisionDate: stage.decisionDate }))}
+                        sessions={(stage.sessions ?? []).map(s => ({ ...s, stageId: stage.id, stageDecisionDate: stage.decisionDate }))}
                         onPostpone={props.onPostponeSession}
                         onEdit={permissions?.can_edit_session ? (session) => props.onEditSession(session, stage, caseItem, client) : undefined}
                         onDelete={permissions?.can_delete_session ? (sessionId) => props.onDeleteSession(sessionId, stage.id, caseItem.id, client.id) : undefined}
@@ -232,15 +232,15 @@ const StageItemContainer: React.FC<{ stage: Stage; caseItem: Case; client: Clien
 
 const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeViewProps; expanded: boolean; onToggle: () => void }> = ({ caseItem, client, props, expanded, onToggle }) => {
     const [activeTab, setActiveTab] = React.useState<'stages' | 'accounting' | 'documents'>('stages');
-    const caseAccountingEntries = props.accountingEntries.filter(e => e.caseId === caseItem.id);
+    const caseAccountingEntries = (props.accountingEntries ?? []).filter(e => e.caseId === caseItem.id);
     const longPressTimer = React.useRef<number | null>(null);
     const { permissions } = props;
 
     const handleFeeChange = (newFee: string) => {
-        props.setClients(clients => clients.map(c => c.id === client.id ? {
+        props.setClients(clients => (clients ?? []).map(c => c.id === client.id ? {
             ...c,
             updated_at: new Date(),
-            cases: c.cases.map(cs => cs.id === caseItem.id ? {...cs, feeAgreement: newFee, updated_at: new Date()} : cs)
+            cases: (c.cases ?? []).map(cs => cs.id === caseItem.id ? {...cs, feeAgreement: newFee, updated_at: new Date()} : cs)
         } : c));
     };
 
@@ -256,11 +256,11 @@ const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeVie
 
         let latestStage: Stage | null = null;
         let latestSession: Session | null = null;
-        if (caseItem.stages.length > 0) {
-            const allSessions = caseItem.stages.flatMap(s => s.sessions);
+        if ((caseItem.stages ?? []).length > 0) {
+            const allSessions = (caseItem.stages ?? []).flatMap(s => s.sessions ?? []);
             if (allSessions.length > 0) {
                 latestSession = allSessions.reduce((latest, current) => new Date(current.date) > new Date(latest.date) ? current : latest);
-                latestStage = caseItem.stages.find(s => s.sessions.some(sess => sess.id === latestSession!.id)) || null;
+                latestStage = (caseItem.stages ?? []).find(s => (s.sessions ?? []).some(sess => sess.id === latestSession!.id)) || null;
             } else {
                 latestStage = caseItem.stages[caseItem.stages.length - 1];
             }
@@ -357,7 +357,7 @@ const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeVie
                     </div>
                     {activeTab === 'stages' && (
                         <div>
-                            {caseItem.stages.map(stage => (
+                            {(caseItem.stages ?? []).map(stage => (
                                 <StageItemContainer key={stage.id} stage={stage} caseItem={caseItem} client={client} props={props} />
                             ))}
                         </div>
@@ -366,7 +366,7 @@ const CaseItem: React.FC<{ caseItem: Case; client: Client; props: ClientsTreeVie
                         <CaseAccounting
                             caseData={caseItem}
                             client={client}
-                            caseAccountingEntries={props.accountingEntries.filter(e => e.caseId === caseItem.id)}
+                            caseAccountingEntries={(props.accountingEntries ?? []).filter(e => e.caseId === caseItem.id)}
                             setAccountingEntries={props.setAccountingEntries}
                             onFeeAgreementChange={handleFeeChange}
                         />
@@ -406,7 +406,7 @@ const ClientItem: React.FC<{ client: Client; props: ClientsTreeViewProps; expand
                     `*ملف موكل:*`,
                     `*الاسم:* ${client.name}`,
                     `*معلومات الاتصال:* ${client.contactInfo || 'لا يوجد'}`,
-                    `*عدد القضايا:* ${client.cases.length}`
+                    `*عدد القضايا:* ${(client.cases ?? []).length}`
                 ].join('\n');
                 const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
                 window.open(whatsappUrl, '_blank');
@@ -448,7 +448,7 @@ const ClientItem: React.FC<{ client: Client; props: ClientsTreeViewProps; expand
                     </div>
                 </div>
                 <div className="flex items-center gap-1">
-                    <span className="text-sm font-medium text-gray-600 bg-gray-200 px-2 py-1 rounded-full">{client.cases.length} قضايا</span>
+                    <span className="text-sm font-medium text-gray-600 bg-gray-200 px-2 py-1 rounded-full">{(client.cases ?? []).length} قضايا</span>
                     <button onClick={(e) => { e.stopPropagation(); props.onPrintClientStatement(client.id); }} className="p-2 text-gray-500 hover:text-green-600" title="طباعة كشف حساب"><PrintIcon className="w-4 h-4" /></button>
                     {permissions?.can_add_case && <button onClick={(e) => { e.stopPropagation(); props.onAddCase(client.id); }} className="p-2 text-gray-500 hover:text-blue-600" title="إضافة قضية"><PlusIcon className="w-4 h-4" /></button>}
                     {permissions?.can_edit_client && <button onClick={(e) => { e.stopPropagation(); props.onEditClient(client); }} className="p-2 text-gray-500 hover:text-blue-600" title="تعديل الموكل"><PencilIcon className="w-4 h-4" /></button>}
@@ -458,8 +458,8 @@ const ClientItem: React.FC<{ client: Client; props: ClientsTreeViewProps; expand
             </header>
             {expanded && (
                 <div className="border-t border-sky-200 p-4 space-y-3 bg-white">
-                    {client.cases.length > 0 ? (
-                        client.cases.map(caseItem => (
+                    {(client.cases ?? []).length > 0 ? (
+                        (client.cases ?? []).map(caseItem => (
                             <CaseItemContainer key={caseItem.id} caseItem={caseItem} client={client} props={props} />
                         ))
                     ) : (
@@ -478,13 +478,13 @@ const ClientsTreeView: React.FC<ClientsTreeViewProps> = (props) => {
         setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
     };
 
-    if (props.clients.length === 0) {
+    if ((props.clients ?? []).length === 0) {
         return <p className="p-6 text-center text-gray-500">لا يوجد موكلون لعرضهم. ابدأ بإضافة موكل جديد.</p>;
     }
 
     return (
         <div className="p-4 space-y-4">
-            {props.clients.map(client => (
+            {(props.clients ?? []).map(client => (
                 <ClientItem 
                     key={client.id} 
                     client={client} 

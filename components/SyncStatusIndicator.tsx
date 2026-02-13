@@ -1,10 +1,11 @@
+
 import * as React from 'react';
 import { ArrowPathIcon, NoSymbolIcon, CheckCircleIcon, ExclamationCircleIcon } from './icons';
 import { SyncStatus } from '../hooks/useSync';
 
 interface SyncStatusIndicatorProps {
     status: SyncStatus;
-    lastError: string | null;
+    lastError: string | null; // This prop actually contains progress messages during 'syncing' status
     isDirty: boolean;
     isOnline: boolean;
     onManualSync: () => void;
@@ -22,13 +23,6 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
             className: 'text-gray-500',
             title: 'أنت غير متصل بالإنترنت. التغييرات محفوظة محلياً.'
         };
-    } else if (!isAutoSyncEnabled && isDirty) {
-        displayStatus = {
-            icon: <ArrowPathIcon className="w-5 h-5 text-yellow-600 animate-pulse" />,
-            text: 'مزامنة يدوية مطلوبة',
-            className: 'text-yellow-600',
-            title: 'المزامنة التلقائية متوقفة. اضغط للمزامنة الآن.'
-        };
     } else if (status === 'unconfigured' || status === 'uninitialized') {
          displayStatus = {
             icon: <ExclamationCircleIcon className="w-5 h-5 text-red-500" />,
@@ -41,14 +35,14 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
             icon: <ArrowPathIcon className="w-5 h-5 text-gray-500 animate-spin" />,
             text: 'جاري التحميل...',
             className: 'text-gray-500',
-            title: 'جاري تحميل البيانات...'
+            title: 'جاري تحميل البيانات الأساسية...'
         };
     } else if (status === 'syncing') {
          displayStatus = {
-            icon: <ArrowPathIcon className="w-5 h-5 text-blue-500 animate-pulse" />,
-            text: 'جاري المزامنة...',
+            icon: <ArrowPathIcon className="w-5 h-5 text-blue-500 animate-spin" />, // Changed pulse to spin for clarity
+            text: lastError || 'جاري المزامنة...', // Show the actual step description if available
             className: 'text-blue-500',
-            title: 'جاري مزامنة بياناتك مع السحابة.'
+            title: lastError || 'جاري مزامنة بياناتك مع السحابة.'
         };
     } else if (status === 'error') {
          displayStatus = {
@@ -62,7 +56,7 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
             icon: <ArrowPathIcon className="w-5 h-5 text-yellow-600" />,
             text: 'تغييرات غير محفوظة',
             className: 'text-yellow-600',
-            title: 'لديك تغييرات لم تتم مزامنتها بعد.'
+            title: 'لديك تغييرات لم تتم مزامنتها بعد. اضغط للمزامنة.'
         };
     } else {
         displayStatus = {
@@ -79,11 +73,15 @@ const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({ status, lastE
         <button
             onClick={canSyncManually ? onManualSync : undefined}
             disabled={!canSyncManually}
-            className={`flex items-center gap-2 text-sm font-semibold p-2 rounded-lg ${canSyncManually ? 'cursor-pointer hover:bg-gray-100' : 'cursor-default'} ${className}`}
+            className={`flex items-center gap-2 text-sm font-semibold p-2 rounded-lg transition-all duration-200 ${canSyncManually ? 'cursor-pointer hover:bg-gray-100' : 'cursor-default'} ${className}`}
             title={displayStatus.title}
         >
-            {displayStatus.icon}
-            <span className={`${displayStatus.className} hidden sm:inline`}>{displayStatus.text}</span>
+            <div className="flex-shrink-0">
+                {displayStatus.icon}
+            </div>
+            <span className={`${displayStatus.className} hidden sm:inline whitespace-nowrap overflow-hidden text-ellipsis max-w-[150px]`}>
+                {displayStatus.text}
+            </span>
         </button>
     );
 };

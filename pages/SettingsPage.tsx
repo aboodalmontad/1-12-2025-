@@ -5,6 +5,7 @@ import { Client, AdminTask, Appointment, AccountingEntry } from '../types';
 import { useData } from '../context/DataContext';
 import { openDB } from 'idb';
 import AssistantsManager from '../components/AssistantsManager';
+import BackupRestoreWizard from '../components/BackupRestoreWizard';
 
 interface SettingsPageProps {}
 
@@ -17,6 +18,7 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
     const [newAssistant, setNewAssistant] = React.useState('');
     const [dbStats, setDbStats] = React.useState<string | null>(null);
     const [isAssistantsManagerOpen, setIsAssistantsManagerOpen] = React.useState(false);
+    const [isImportWizardOpen, setIsImportWizardOpen] = React.useState(false);
 
     const showFeedback = (message: string, type: 'success' | 'error') => {
         setFeedback({ message, type });
@@ -60,7 +62,6 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                 
                 const importedData = JSON.parse(text); 
                 
-                // التأكد من وجود الحقول الأساسية على الأقل
                 if (!importedData || typeof importedData !== 'object') {
                     throw new Error("تنسيق ملف النسخة الاحتياطية غير صحيح.");
                 }
@@ -76,7 +77,6 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
             showFeedback('فشل قراءة الملف من الجهاز.', 'error');
         };
         reader.readAsText(file);
-        // تصفير قيمة المدخل للسماح باختيار نفس الملف مرة أخرى إذا لزم الأمر
         event.target.value = '';
     };
 
@@ -175,17 +175,34 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                 {dbStats && <pre className="mt-4 bg-gray-900 text-green-400 p-4 rounded-lg text-xs font-mono overflow-x-auto border border-gray-700 shadow-inner">{dbStats}</pre>}
             </div>
 
+            <div className="bg-white p-6 rounded-lg shadow space-y-4 border border-blue-100">
+                <h2 className="text-xl font-bold text-blue-800 border-b pb-3 flex items-center gap-2">
+                    <CloudArrowUpIcon className="w-6 h-6" />
+                    <span>مزامنة النسخ الاحتياطية مع السحابة</span>
+                </h2>
+                <p className="text-sm text-gray-600">هذه الأداة مخصصة لرفع ملف نسخة احتياطية (JSON) مباشرة إلى السحابة مع معالجة خطوة بخطوة لكل جدول لتحديد الأخطاء.</p>
+                <div className="flex flex-wrap gap-4 pt-2">
+                    <button 
+                        onClick={() => setIsImportWizardOpen(true)} 
+                        className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+                    >
+                        <ArrowUpTrayIcon className="w-5 h-5"/>
+                        <span>تشغيل معالج الاستيراد السحابي</span>
+                    </button>
+                    <button onClick={handleExportData} className="flex items-center gap-2 px-6 py-2 bg-white text-blue-700 font-bold rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors">
+                        <ArrowDownTrayIcon className="w-5 h-5"/>
+                        <span>تصدير ملف نسخة احتياطية (للجهاز)</span>
+                    </button>
+                </div>
+            </div>
+
             <div className="bg-white p-6 rounded-lg shadow space-y-4">
                 <h2 className="text-xl font-bold text-gray-800 border-b pb-3">نقل البيانات (ملفات محليّة)</h2>
-                <p className="text-sm text-gray-500 mb-4">هذه الأدوات تتيح لك حفظ نسخة احتياطية على جهازك أو استيراد بيانات من ملف JSON تم تصديره سابقاً من هذا التطبيق.</p>
+                <p className="text-sm text-gray-500 mb-4">هذه الأدوات تتيح لك استيراد بيانات من ملف JSON تم تصديره سابقاً لهذا الجهاز فقط.</p>
                 <div className="flex flex-wrap gap-4">
-                    <button onClick={handleExportData} className="flex items-center gap-2 px-6 py-2 bg-blue-50 text-blue-700 font-bold rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors">
-                        <ArrowDownTrayIcon className="w-5 h-5"/>
-                        <span>تصدير ملف نسخة احتياطية</span>
-                    </button>
-                    <label className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors cursor-pointer shadow-md">
+                    <label className="flex items-center gap-2 px-6 py-2 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-700 transition-colors cursor-pointer shadow-md">
                         <ArrowUpTrayIcon className="w-5 h-5"/>
-                        <span>استيراد من ملف</span>
+                        <span>استيراد من ملف (للجهاز فقط)</span>
                         <input type="file" accept=".json" className="hidden" onChange={handleImportData}/>
                     </label>
                 </div>
@@ -199,16 +216,19 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
                         <button type="submit" className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm">إضافة</button>
                     </form>
                     <ul className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                        {assistants.map(a => (
-                            <li key={a} className="flex justify-between items-center p-3 bg-gray-50 border rounded-lg hover:shadow-sm transition-shadow">
-                                <span className="font-medium text-gray-700">{a}</span>
-                                {a !== 'بدون تخصيص' && (
-                                    <button onClick={() => handleDeleteAssistant(a)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-full transition-colors">
-                                        <TrashIcon className="w-4 h-4"/>
-                                    </button>
-                                )}
-                            </li>
-                        ))}
+                        {(assistants || []).map((a: any) => {
+                            const name = typeof a === 'object' ? a.name : a;
+                            return (
+                                <li key={String(name)} className="flex justify-between items-center p-3 bg-gray-50 border rounded-lg hover:shadow-sm transition-shadow">
+                                    <span className="font-medium text-gray-700">{String(name)}</span>
+                                    {name !== 'بدون تخصيص' && (
+                                        <button onClick={() => handleDeleteAssistant(String(name))} className="p-1.5 text-red-500 hover:bg-red-50 rounded-full transition-colors">
+                                            <TrashIcon className="w-4 h-4"/>
+                                        </button>
+                                    )}
+                                </li>
+                            );
+                        })}
                     </ul>
                 </div>
             </div>
@@ -243,7 +263,7 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
             
             {isDeleteAssistantModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white p-8 rounded-xl shadow-lg max-w-sm w-full">
+                    <div className="bg-white p-8 rounded-xl shadow-lg max-sm w-full">
                         <h3 className="text-xl font-bold mb-4">حذف من القائمة؟</h3>
                         <p className="text-gray-600 mb-6">هل تريد إزالة "{assistantToDelete}" من قائمة المساعدين المتاحة للتخصيص؟</p>
                         <div className="flex gap-4">
@@ -255,6 +275,7 @@ const SettingsPage: React.FC<SettingsPageProps> = () => {
             )}
             
             {isAssistantsManagerOpen && <AssistantsManager onClose={() => setIsAssistantsManagerOpen(false)} />}
+            {isImportWizardOpen && <BackupRestoreWizard onClose={() => setIsImportWizardOpen(false)} />}
         </div>
     );
 };
