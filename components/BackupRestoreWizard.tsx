@@ -1,3 +1,4 @@
+
 import * as React from 'react';
 import { useData } from '../context/DataContext';
 import { getTablesConfig, checkSupabaseSchema } from '../hooks/useOnlineData';
@@ -61,7 +62,7 @@ const BackupRestoreWizard: React.FC<BackupRestoreWizardProps> = ({ onClose }) =>
                 
                 let helpMsg = `توقف الرفع عند جدول ${steps[i].label}: ${err.message}`;
                 if (err.message.includes('policy')) {
-                    helpMsg += " (يجب تطبيق سكربت SQL v5.3 من الإعدادات).";
+                    helpMsg += " (يرجى تطبيق سكربت SQL v5.5 من الإعدادات للسماح بالرفع الجماعي).";
                 }
                 setGlobalError(helpMsg);
                 setIsProcessing(false);
@@ -70,7 +71,7 @@ const BackupRestoreWizard: React.FC<BackupRestoreWizardProps> = ({ onClose }) =>
         }
 
         await fetchAndRefresh();
-        setGlobalError("اكتملت عملية المعالجة! تم رفع الجداول المختارة بنجاح.");
+        setGlobalError("اكتملت عملية المعالجة! تم رفع كافة الجداول المختارة بنجاح.");
         setIsProcessing(false);
     };
 
@@ -124,10 +125,9 @@ const BackupRestoreWizard: React.FC<BackupRestoreWizardProps> = ({ onClose }) =>
                 count: c!.data.length
             }));
 
-            if (initialSteps.length === 0) throw new Error("الملف فارغ أو لا يحتوي على بيانات.");
+            if (initialSteps.length === 0) throw new Error("الملف فارغ أو لا يحتوي على بيانات متوافقة.");
             
             setSteps(initialSteps);
-            // سيتم تشغيل processUpload بعد أن يتم تحديث الحالة في الدورة التالية
         } catch (err: any) {
             setGlobalError(err.message);
             setIsProcessing(false);
@@ -156,8 +156,8 @@ const BackupRestoreWizard: React.FC<BackupRestoreWizardProps> = ({ onClose }) =>
                             <CloudArrowUpIcon className="w-6 h-6" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-gray-800">معالج استعادة النظام السحابي</h2>
-                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Cloud Identity & Data Sync</p>
+                            <h2 className="text-xl font-bold text-gray-800">معالج استعادة النظام v5.5</h2>
+                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Identity & Bulk Sync Wizard</p>
                         </div>
                     </div>
                     {!isProcessing && (
@@ -168,12 +168,12 @@ const BackupRestoreWizard: React.FC<BackupRestoreWizardProps> = ({ onClose }) =>
                 </div>
 
                 {/* Content */}
-                <div className="p-6 overflow-y-auto flex-grow">
+                <div className="p-6 overflow-y-auto flex-grow text-right">
                     {!steps.length ? (
                         <div className="space-y-6">
                             <div className="bg-blue-50 border-s-4 border-blue-500 p-4 rounded text-sm text-blue-800">
                                 <p className="font-bold mb-2 flex items-center gap-2"><ShieldCheckIcon className="w-4 h-4"/> وضع المدير المسؤول:</p>
-                                <p>هذا المعالج يسمح لك برفع كافة بيانات مكتبك وحسابات المساعدين إلى السحابة دفعة واحدة.</p>
+                                <p>يجب التأكد من تشغيل **سكربت v5.5** في SQL Editor قبل البدء لضمان تجاوز قيود الأمان أثناء الرفع الجماعي.</p>
                             </div>
 
                             <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:bg-gray-50 transition-all group">
@@ -197,7 +197,7 @@ const BackupRestoreWizard: React.FC<BackupRestoreWizardProps> = ({ onClose }) =>
                     ) : (
                         <div className="space-y-4">
                             <div className="flex items-center justify-between mb-4 border-b pb-2">
-                                <h3 className="font-bold text-gray-700">قائمة خطوات الرفع:</h3>
+                                <h3 className="font-bold text-gray-700">قائمة خطوات الرفع (v5.5):</h3>
                                 {isProcessing && <span className="text-xs bg-blue-600 text-white px-3 py-1 rounded-full animate-pulse font-bold">جاري المزامنة...</span>}
                             </div>
                             

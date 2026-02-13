@@ -213,7 +213,7 @@ export const upsertDataToSupabase = async (data: Partial<FlatData>, ownerId: str
             
             if (error) {
                 console.error(`RLS or DB Error on table ${config.table}:`, error);
-                throw new Error(`فشل في جدول ${config.table}: ${error.message}. يرجى تشغيل سكربت v5.3 من الإعدادات.`);
+                throw new Error(`فشل في جدول ${config.table}: ${error.message}. يرجى تشغيل سكربت v5.5 من الإعدادات.`);
             }
         }
     }

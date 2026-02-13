@@ -13,16 +13,16 @@ const CopyButton: React.FC<{ textToCopy: string }> = ({ textToCopy }) => {
     return (
         <button type="button" onClick={handleCopy} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors shadow-sm" title="نسخ الكود">
             {copied ? <ClipboardDocumentCheckIcon className="w-4 h-4 text-white" /> : <ClipboardDocumentIcon className="w-4 h-4" />}
-            {copied ? 'تم النسخ!' : 'نسخ كود SQL v5.3'}
+            {copied ? 'تم النسخ!' : 'نسخ كود SQL v5.5'}
         </button>
     );
 };
 
 const unifiedScript = `-- =================================================================
--- سكربت الإصلاح v5.3 - حل نهائي لمشكلة RLS في الحسابات (Profiles)
+-- سكربت الإصلاح v5.5 - حل نهائي لمشكلة صلاحيات جدول الحسابات
 -- =================================================================
 
--- 1. دالة التحقق من رتبة المدير (بصلاحيات أمنية محصنة)
+-- 1. تحديث دوال التحقق من الهوية (Security Definer لضمان تجاوز RLS داخلياً)
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean AS $$
 BEGIN
@@ -43,19 +43,21 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
--- 2. إعادة ضبط سياسة جدول الحسابات (Profiles) بشكل جذري
+-- 2. إعادة ضبط سياسة جدول الحسابات (Profiles) - الإصدار v5.5
 DO $$
 BEGIN
     ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
     
-    -- حذف كافة السياسات السابقة لتجنب التعارض
+    -- حذف كافة السياسات السابقة (من v5.0 إلى v5.4)
     DROP POLICY IF EXISTS "Policy_Profiles_v50" ON public.profiles;
     DROP POLICY IF EXISTS "Policy_Profiles_v51" ON public.profiles;
     DROP POLICY IF EXISTS "Policy_Profiles_v52" ON public.profiles;
     DROP POLICY IF EXISTS "Policy_Profiles_v53" ON public.profiles;
+    DROP POLICY IF EXISTS "Policy_Profiles_v54" ON public.profiles;
+    DROP POLICY IF EXISTS "Policy_Profiles_v55" ON public.profiles;
     
-    -- سياسة v5.3: المدير يملك صلاحيات كاملة، المستخدم يرى حسابه ومساعديه فقط
-    CREATE POLICY "Policy_Profiles_v53" ON public.profiles FOR ALL TO authenticated 
+    -- سياسة v5.5: المدير يتحكم بكل شيء، المحامي يتحكم بحسابه وحسابات مساعديه
+    CREATE POLICY "Policy_Profiles_v55" ON public.profiles FOR ALL TO authenticated 
     USING (
         public.is_admin() 
         OR id = auth.uid() 
@@ -64,10 +66,11 @@ BEGIN
     WITH CHECK (
         public.is_admin() 
         OR id = auth.uid()
+        OR lawyer_id = auth.uid()
     );
 END $$;
 
--- 3. تحديث سياسات جداول البيانات الأخرى لتعمل مع v5.3
+-- 3. تطبيق السياسة الموحدة v5.5 على كافة جداول البيانات
 DO $$
 DECLARE
     t text;
@@ -78,27 +81,26 @@ DECLARE
     ];
 BEGIN
     FOR t IN SELECT unnest(data_tables) LOOP
-        -- ضمان وجود عمود user_id
-        EXECUTE 'ALTER TABLE public.' || t || ' ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id)';
-        
-        -- تفعيل الحماية
+        -- التأكد من تفعيل RLS
         EXECUTE 'ALTER TABLE public.' || t || ' ENABLE ROW LEVEL SECURITY';
         
-        -- تنظيف السياسات السابقة
+        -- حذف السياسات القديمة
+        EXECUTE 'DROP POLICY IF EXISTS "Policy_All_v53" ON public.' || t;
+        EXECUTE 'DROP POLICY IF EXISTS "Policy_All_v54" ON public.' || t;
+        EXECUTE 'DROP POLICY IF EXISTS "Policy_All_v55" ON public.' || t;
         EXECUTE 'DROP POLICY IF EXISTS "Policy_Select_v52" ON public.' || t;
         EXECUTE 'DROP POLICY IF EXISTS "Policy_Insert_v52" ON public.' || t;
         EXECUTE 'DROP POLICY IF EXISTS "Policy_Update_v52" ON public.' || t;
         EXECUTE 'DROP POLICY IF EXISTS "Policy_Delete_v52" ON public.' || t;
-        EXECUTE 'DROP POLICY IF EXISTS "Policy_All_v53" ON public.' || t;
 
-        -- تطبيق سياسة موحدة وشاملة v5.3
-        EXECUTE 'CREATE POLICY "Policy_All_v53" ON public.' || t || ' FOR ALL TO authenticated 
+        -- تطبيق سياسة الوصول الكامل v5.5
+        EXECUTE 'CREATE POLICY "Policy_All_v55" ON public.' || t || ' FOR ALL TO authenticated 
         USING (public.is_admin() OR user_id = public.get_data_owner_id()) 
         WITH CHECK (public.is_admin() OR user_id = public.get_data_owner_id())';
     END LOOP;
 END $$;
 
--- 4. إعادة منح الصلاحيات
+-- 4. منح الصلاحيات اللازمة للدوال
 GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_data_owner_id() TO authenticated;
 `;
@@ -113,18 +115,18 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" dir="rtl">
                 <div className="flex items-center gap-3 mb-4 text-blue-600">
                     <ShieldCheckIcon className="w-8 h-8" />
-                    <h2 className="text-2xl font-bold">معالج تهيئة النظام المتقدم v5.3</h2>
+                    <h2 className="text-2xl font-bold">معالج تهيئة النظام v5.5</h2>
                 </div>
                 
                 <div className="overflow-y-auto flex-grow pr-2 text-right">
                     <div className="bg-blue-50 border-s-4 border-blue-500 p-4 mb-4 rounded text-sm text-blue-800">
-                        <strong>حل مشكلة RLS في الحسابات:</strong> هذا السكربت (v5.3) يمنح المدير الصلاحيات اللازمة لاستعادة بيانات حسابات المستخدمين الآخرين من النسخة الاحتياطية.
+                        <strong>إصلاح نهائي لـ RLS:</strong> هذا التحديث (v5.5) يعالج مشكلة فشل تحديث حسابات المساعدين أثناء الاستعادة للمحامين.
                     </div>
 
                     <ol className="list-decimal list-inside space-y-4 text-sm text-gray-600 mb-6">
                         <li className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                             <div className="flex justify-between items-center mb-2">
-                                <strong className="text-gray-900 font-bold">1. انسخ كود الترقية v5.3:</strong>
+                                <strong className="text-gray-900 font-bold">1. انسخ كود SQL v5.5:</strong>
                                 <CopyButton textToCopy={unifiedScript} />
                             </div>
                             <div className="relative">
@@ -133,8 +135,8 @@ const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ onRetry }) => {
                                 </pre>
                             </div>
                         </li>
-                        <li>2. الصق الكود في <strong>SQL Editor</strong> في Supabase واضغط <strong>Run</strong>.</li>
-                        <li>3. ارجع هنا واضغط <strong>بدء المزامنة</strong> لإتمام عملية الاستعادة.</li>
+                        <li>2. الصق الكود في <strong>SQL Editor</strong> في لوحة تحكم Supabase واضغط <strong>Run</strong>.</li>
+                        <li>3. بعد نجاح التشغيل، ارجع هنا واضغط <strong>بدء المزامنة</strong>.</li>
                     </ol>
                 </div>
 
